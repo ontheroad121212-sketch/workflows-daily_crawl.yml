@@ -28,4 +28,4 @@ jobs:
         run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > .github/workflows/key.json
 
       - name: 5. 수집기 가동
-        run: python Collector.py
+        run: python workflows-daily_crawl.yml/Collector.py
