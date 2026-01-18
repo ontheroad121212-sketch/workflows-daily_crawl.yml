@@ -23,3 +23,9 @@ jobs:
 
       - name: 수집기 실행
         run: python Collector.py
+
+      - name: 4. 구글 인증 키 생성
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > key.json
+
+      - name: 5. 수집기 가동
+        run: python Collector.py  
