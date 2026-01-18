@@ -9,6 +9,9 @@ import time
 import re
 from datetime import datetime, timedelta
 
+# [로그 출력용] 시작하자마자 글자를 찍게 만듭니다.
+print("🚀 [시스템] 엠버 AI 지배인 엔진 가동 시작...")
+
 # 1. 구글 시트 저장 함수 (원본 유지)
 def save_to_google_sheet(all_data):
     if not all_data: return
@@ -168,3 +171,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
