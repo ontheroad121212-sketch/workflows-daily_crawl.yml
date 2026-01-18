@@ -1,0 +1,29 @@
+name: 엠버 일일 요금 자동 수집
+
+on:
+  schedule:
+    - cron: '21 22 * * *' # 매일 아침 07:21 실행
+  workflow_dispatch: # 수동 실행 버튼
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. 코드 체크아웃
+        uses: actions/checkout@v3
+
+      - name: 2. 파이썬 설치
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: 3. 라이브러리 설치
+        run: |
+          pip install pandas gspread oauth2client selenium webdriver-manager
+
+      - name: 4. 인증키 생성
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > key.json
+
+      - name: 5. 수집기 가동
+        # 저장소 바로 아래에 Collector.py가 있다면 이대로 쓰시면 됩니다.
+        run: python Collector.py
