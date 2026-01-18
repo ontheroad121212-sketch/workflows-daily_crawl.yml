@@ -25,7 +25,7 @@ jobs:
         run: python Collector.py
 
       - name: 4. 구글 인증 키 생성
-        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > .github/workflows/key.json
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > workflows-daily_crawl.yml/key.json
 
       - name: 5. 수집기 가동
         run: python workflows-daily_crawl.yml/Collector.py
