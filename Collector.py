@@ -8,9 +8,10 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
 from datetime import datetime, timedelta
+import sys # 추가: 실시간 로그 출력을 위해 필요
 
-# [로그 출력용] 시작하자마자 글자를 찍게 만듭니다.
-print("🚀 [시스템] 엠버 AI 지배인 엔진 가동 시작...")
+# [로그 출력용] 시작하자마자 글자를 찍게 만듭니다. (flush=True 추가)
+print("🚀 [시스템] 엠버 AI 지배인 엔진 가동 시작...", flush=True)
 
 # 1. 구글 시트 저장 함수 (원본 유지)
 def save_to_google_sheet(all_data):
@@ -21,9 +22,9 @@ def save_to_google_sheet(all_data):
         client = gspread.authorize(creds)
         sheet = client.open("Amber_Price_DB").sheet1 
         sheet.append_rows(all_data)
-        print(f"✅ 구글 시트 데이터 저장 완료! ({len(all_data)}행)")
+        print(f"✅ 구글 시트 데이터 저장 완료! ({len(all_data)}행)", flush=True)
     except Exception as e:
-        print(f"🚨 저장 에러: {e}")
+        print(f"🚨 저장 에러: {e}", flush=True)
 
 # 2. 날짜 관리 함수 (서버 환경 대응을 위해 input 제거, 나머지는 원본 유지)
 def get_fixed_target_dates():
@@ -41,7 +42,7 @@ def get_fixed_target_dates():
     target_dates = [d for d in fixed_dates if d >= today_str]
     
     # [수정] 서버에서는 사람이 입력할 수 없으므로 input 대기 부분을 삭제했습니다.
-    print(f"📅 자동 타겟팅된 1~4월 분석 날짜 (총 {len(target_dates)}일): {target_dates}")
+    print(f"📅 자동 타겟팅된 1~4월 분석 날짜 (총 {len(target_dates)}일): {target_dates}", flush=True)
     
     return sorted(list(set(target_dates)))
 
@@ -115,11 +116,11 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date):
                     if price_val > 100000:
                         rows.append([now, hotel_name, room_name, found_channel, price_val, target_date])
                         collected_rooms_channels[room_name].append(found_channel)
-                        print(f"    🔎 [기본상품확보] {room_name} | {found_channel}: {price_val:,}원")
+                        print(f"    🔎 [기본상품확보] {room_name} | {found_channel}: {price_val:,}원", flush=True)
         
         return rows
     except Exception as e:
-        print(f"❌ {hotel_name} 수집 오류: {e}")
+        print(f"❌ {hotel_name} 수집 오류: {e}", flush=True)
         return []
 
 # 4. 메인 실행 함수 (원본 유지)
@@ -132,8 +133,8 @@ def main():
         "그랜드조선제주": "N5279751"
     }
 
-    print("\n" + "="*50)
-    print("🏨 엠버 AI 지배인 전수 수집 엔진 v2.8 (서버 자동화 대응)")
+    print("\n" + "="*50, flush=True)
+    print("🏨 엠버 AI 지배인 전수 수집 엔진 v2.8 (서버 자동화 대응)", flush=True)
     
     test_dates = get_fixed_target_dates()
     
@@ -151,24 +152,23 @@ def main():
     
     try:
         for hotel_name, hotel_id in hotels.items():
-            print(f"\n🏨 {hotel_name} (ID: {hotel_id}) 분석 시작...")
+            print(f"\n🏨 {hotel_name} (ID: {hotel_id}) 분석 시작...", flush=True)
             hotel_total_data = []
             for date in test_dates:
-                print(f"    📅 {date} 수집 중...")
+                print(f"    📅 {date} 수집 중...", flush=True)
                 data = collect_hotel_data(driver, hotel_name, hotel_id, date)
                 hotel_total_data.extend(data)
             
             if hotel_total_data:
                 save_to_google_sheet(hotel_total_data)
-                print(f"✨ {hotel_name} 전송 완료!")
+                print(f"✨ {hotel_name} 전송 완료!", flush=True)
 
     except Exception as e:
-        print(f"🚨 메인 루프 실행 에러: {e}")
+        print(f"🚨 메인 루프 실행 에러: {e}", flush=True)
 
     finally:
         driver.quit()
-        print("\n🏁 서버 환경에서 모든 수집 및 저장이 완료되었습니다!")
+        print("\n🏁 서버 환경에서 모든 수집 및 저장이 완료되었습니다!", flush=True)
 
 if __name__ == "__main__":
     main()
-
