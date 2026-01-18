@@ -27,4 +27,4 @@ jobs:
 
       - name: 5. 수집기 가동
         # Collector.py가 저장소 메인에 있으니 바로 실행합니다.
-        run: python Collector.py
+        run: python -u Collector.py
