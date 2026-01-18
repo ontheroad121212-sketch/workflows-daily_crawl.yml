@@ -22,4 +22,4 @@ jobs:
           pip install pandas gspread oauth2client selenium webdriver-manager
 
       - name: 수집기 실행
-        run: python scraper.py  # Collector.py
+        run: Collector.py
