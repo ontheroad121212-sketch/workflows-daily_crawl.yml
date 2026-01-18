@@ -8,10 +8,11 @@ from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
 from datetime import datetime, timedelta
-import sys # 추가: 실시간 로그 출력을 위해 필요
+import sys
+import calendar
 
-# [로그 출력용] 시작하자마자 글자를 찍게 만듭니다. (flush=True 추가)
-print("🚀 [시스템] 엠버 AI 지배인 엔진 가동 시작...", flush=True)
+# [로그 출력]
+print("🚀 [시스템] 엠버 AI 지배인 지능형 날짜 엔진 가동...", flush=True)
 
 # 1. 구글 시트 저장 함수 (원본 유지)
 def save_to_google_sheet(all_data):
@@ -26,27 +27,70 @@ def save_to_google_sheet(all_data):
     except Exception as e:
         print(f"🚨 저장 에러: {e}", flush=True)
 
-# 2. 날짜 관리 함수 (서버 환경 대응을 위해 input 제거, 나머지는 원본 유지)
-def get_fixed_target_dates():
-    fixed_dates = [
-        # 1월
-        "2026-01-21", "2026-01-24", "2026-01-28", "2026-01-31",
-        # 2월
-        "2026-02-07", "2026-02-11", "2026-02-14", "2026-02-18", "2026-02-28",
-        # 3월
-        "2026-03-11", "2026-03-21", 
-        # 4월
-        "2026-04-15", "2026-04-18"
-    ]
-    today_str = datetime.now().strftime("%Y-%m-%d")
-    target_dates = [d for d in fixed_dates if d >= today_str]
-    
-    # [수정] 서버에서는 사람이 입력할 수 없으므로 input 대기 부분을 삭제했습니다.
-    print(f"📅 자동 타겟팅된 1~4월 분석 날짜 (총 {len(target_dates)}일): {target_dates}", flush=True)
-    
-    return sorted(list(set(target_dates)))
+# 2. [업데이트] 스마트 날짜 계산 함수
+def get_dynamic_target_dates():
+    today = datetime.now()
+    target_dates = set()
 
-# 3. 개별 호텔 데이터 수집 함수 (원본 로직 유지)
+    # --- 1. 당월: 차주 및 차차주 수요일, 토요일 ---
+    # 오늘로부터 7일 뒤(차주)부터 21일 뒤 사이의 수, 토 추출
+    for i in range(7, 21):
+        future_date = today + timedelta(days=i)
+        if future_date.weekday() == 2: # 수요일
+            target_dates.add(future_date.strftime("%Y-%m-%d"))
+        if future_date.weekday() == 5: # 토요일
+            target_dates.add(future_date.strftime("%Y-%m-%d"))
+
+    # --- 2. 익월부터 +3개월: 2주차 수요일, 3주차 토요일 ---
+    current_month = today.month
+    current_year = today.year
+    
+    for i in range(1, 4):
+        month = (current_month + i - 1) % 12 + 1
+        year = current_year + (current_month + i - 1) // 12
+        
+        cal = calendar.monthcalendar(year, month)
+        
+        # 2주차 수요일 (2번째 리스트의 index 2) - 첫주가 수요일을 포함하지 않을 경우 대응
+        wednesdays = [w[calendar.WEDNESDAY] for w in cal if w[calendar.WEDNESDAY] != 0]
+        if len(wednesdays) >= 2:
+            target_dates.add(f"{year}-{month:02d}-{wednesdays[1]:02d}")
+            
+        # 3주차 토요일 (3번째 리스트의 index 5)
+        saturdays = [s[calendar.SATURDAY] for s in cal if s[calendar.SATURDAY] != 0]
+        if len(saturdays) >= 3:
+            target_dates.add(f"{year}-{month:02d}-{saturdays[2]:02d}")
+
+    # --- 3. 한국 주요 공휴일 및 연휴 (앞뒤 조사) ---
+    # 2026년 주요 공휴일 리스트 (지배인님 요청: 무조건 앞뒤 조사)
+    holidays_2026 = [
+        "2026-02-14", "2026-02-16", "2026-02-20", # 설날 연휴
+        "2026-03-01", # 삼일절
+        "2026-05-05", # 어린이날
+        "2026-05-24", # 부처님오신날
+        "2026-06-06", # 현충일
+        "2026-08-15", # 광복절
+        "2026-09-24", "2026-09-25", "2026-09-26", # 추석 연휴
+        "2026-10-03", "2026-10-09", # 개천절, 한글날
+        "2026-12-24"  # 크리스마스
+    ]
+    
+    for h in holidays_2026:
+        h_date = datetime.strptime(h, "%Y-%m-%d")
+        if h_date >= today:
+            target_dates.add((h_date - timedelta(days=1)).strftime("%Y-%m-%d")) # 전날
+            target_dates.add(h) # 당일
+            target_dates.add((h_date + timedelta(days=1)).strftime("%Y-%m-%d")) # 다음날
+
+    # --- 4. 7월말~8월초 극성수기 (주중 1일, 주말 1일) ---
+    target_dates.add("2026-07-29") # 7월 마지막 수요일(주중)
+    target_dates.add("2026-08-01") # 8월 첫 토요일(주말)
+
+    final_list = sorted([d for d in target_dates if d >= today.strftime("%Y-%m-%d")])
+    print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
+    return final_list
+
+# 3. 개별 호텔 데이터 수집 함수 (원본 로직 100% 유지)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date):
     try:
         date_obj = datetime.strptime(target_date, "%Y-%m-%d")
@@ -134,9 +178,10 @@ def main():
     }
 
     print("\n" + "="*50, flush=True)
-    print("🏨 엠버 AI 지배인 전수 수집 엔진 v2.8 (서버 자동화 대응)", flush=True)
+    print("🏨 엠버 AI 지배인 전수 수집 엔진 v2.8 (지능형 날짜 타겟팅)", flush=True)
     
-    test_dates = get_fixed_target_dates()
+    # [업데이트] 박제된 날짜 대신 동적 계산 함수 호출
+    test_dates = get_dynamic_target_dates()
     
     options = Options()
     options.add_argument("--headless")  
@@ -168,7 +213,7 @@ def main():
 
     finally:
         driver.quit()
-        print("\n🏁 서버 환경에서 모든 수집 및 저장이 완료되었습니다!", flush=True)
+        print("\n🏁 지능형 자동 수집 및 저장이 완료되었습니다!", flush=True)
 
 if __name__ == "__main__":
     main()
