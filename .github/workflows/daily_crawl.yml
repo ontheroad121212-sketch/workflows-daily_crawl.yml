@@ -2,30 +2,29 @@ name: 엠버 일일 요금 자동 수집
 
 on:
   schedule:
-    - cron: '21 22 * * *' # 한국 시간 기준 매일 오전 7시 21분 실행
-  workflow_dispatch: # 수동 실행 버튼 생성
+    - cron: '21 22 * * *' # 한국 시간 매일 오전 07:21 실행
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: 코드 체크아웃
+      - name: 1. 코드 체크아웃
         uses: actions/checkout@v3
 
-      - name: 파이썬 환경 설정
+      - name: 2. 파이썬 환경 설정
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: 필수 라이브러리 설치
+      - name: 3. 필수 라이브러리 설치
         run: |
           pip install pandas gspread oauth2client selenium webdriver-manager
 
-      - name: 수집기 실행
-        run: python Collector.py
-
       - name: 4. 구글 인증 키 생성
-        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > workflows-daily_crawl.yml/key.json
+        # 폴더명이 workflows-daily_crawl.yml 이므로 그 안에 key.json을 만듭니다.
+        run: echo '${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}' > "workflows-daily_crawl.yml/key.json"
 
       - name: 5. 수집기 가동
-        run: python workflows-daily_crawl.yml/Collector.py
+        # 폴더 경로를 포함하여 실행합니다.
+        run: python "workflows-daily_crawl.yml/Collector.py"
