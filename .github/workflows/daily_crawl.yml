@@ -2,8 +2,8 @@ name: 엠버 일일 요금 자동 수집
 
 on:
   schedule:
-    - cron: '21 22 * * *' # 한국 시간 기준 매일 오전 7시 21분 실행 (UTC 22:21)
-  workflow_dispatch: # 필요할 때 수동으로도 실행 가능
+    - cron: '21 22 * * *' # 한국 시간 기준 매일 오전 7시 21분 실행
+  workflow_dispatch: # 수동 실행 버튼 생성
 
 jobs:
   build:
@@ -22,4 +22,4 @@ jobs:
           pip install pandas gspread oauth2client selenium webdriver-manager
 
       - name: 수집기 실행
-        run: Collector.py
+        run: python Collector.py
