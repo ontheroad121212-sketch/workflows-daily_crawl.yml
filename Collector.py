@@ -86,36 +86,33 @@ def get_dynamic_target_dates():
 
 # 3. 개별 호텔 데이터 수집 함수 (엠버 10종 타입 무삭제 반영)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
-    # [로그] 현재 진행 상황 출력
     print(f"   📅 {target_date} 조회 시도 중...", flush=True) 
-    
     try:
-        date_obj = datetime.strptime(target_date, "%Y-%m-%d")
-        checkout_date = (date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
+        checkout_date = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        time.sleep(15) 
         
-        print(f"      🔎 페이지 로드 완료, 데이터 탐색 시작...", flush=True)
-        
-        # [네이버 차단 회피] 스크롤 및 탐색 로직
-        driver.execute_script("window.scrollTo(0, 1000);")
+        # [수정] 30초 동안 객실 목록이 나타날 때까지 끈질기게 대기
+        wait = 0
+        while wait < 30:
+            items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item'], div[class*='RateItem']")
+            if len(items) > 5: # 최소 5개 이상 로딩되면 시작
+                break
+            time.sleep(1)
+            wait += 1
+            if wait % 5 == 0: print(f"      ⏳ 로딩 대기 중... ({wait}초)", flush=True)
+
+        # [수정] 네이버 차단 회피를 위한 '사람다운' 스크롤링
+        driver.execute_script("window.scrollTo(0, 500);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
-        
-        # '원'이 포함된 요소가 있는지 먼저 검사
-        price_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '원')]")
-        if not price_elements:
-            print(f"      ⚠️ {target_date}: 가격 정보를 찾을 수 없습니다. (차단 혹은 로딩실패)", flush=True)
-            return []
 
-        # 객실 상자 탐색 (지배인님 제공 CSS 및 XPATH 통합)
-        items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item'], div[class*='item'], li[class*='Rate']")
-        if not items:
-            items = driver.find_elements(By.XPATH, "//li[descendant::span[contains(text(), '원')]]")
+        print(f"      🔎 페이지 로드 확인 (객실 수: {len(items)}개), 분석 시작...", flush=True)
 
         if not items:
-            print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다.", flush=True)
+            print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다. (차단 혹은 만실)", flush=True)
             return []
 
         rows = []
@@ -134,60 +131,45 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
 
         for item in items:
             text = item.text.strip()
-            html_content = item.get_attribute('innerHTML').lower()
+            if "원" not in text or "\n" not in text: continue
             
-            # 1. 제외 키워드 필터 (원본 유지)
+            html_content = item.get_attribute('innerHTML').lower()
             exclude_keywords = ["조식", "패키지", "package", "포함", "연박", "long", "stay", "라운지", "특전", "무료증정", "wine", "와인"]
-            if "원" in text and "\n" in text:
-                if any(kw in text.lower() for kw in exclude_keywords):
+            
+            if any(kw in text.lower() for kw in exclude_keywords): continue
+
+            parts = text.split("\n")
+            room_name = parts[0].strip()
+
+            # 쾌속 모드 및 엠버 10종 필터 (지배인님 로직 무삭제)
+            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
+                break
+
+            if hotel_name == "엠버퓨어힐":
+                amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
+                if not any(kw in room_name for kw in amber_types):
                     continue
+            
+            found_channel = "플랫폼원본"
+            for channel, keywords in target_map.items():
+                if any(key in html_content for key in keywords):
+                    found_channel = channel
+                    break 
 
-                parts = text.split("\n")
-                room_name = parts[0].strip()
-
-                # 2. 쾌속 모드 및 엠버 10종 필터 (원본 유지)
-                if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
-                    break
-
-                if hotel_name == "엠버퓨어힐":
-                    amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
-                    if not any(kw in room_name for kw in amber_types):
-                        continue
+            if room_name not in collected_rooms_channels:
+                collected_rooms_channels[room_name] = []
+            
+            if found_channel not in collected_rooms_channels[room_name]:
+                # 포인트 금액 방지 (가장 큰 금액만 추출)
+                prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
+                if not prices: continue
                 
-                # 3. 판매 채널 매핑 (원본 유지)
-                found_channel = None
-                priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
-                for channel in priority_order:
-                    keywords = target_map.get(channel, [])
-                    if any(key in html_content for key in keywords):
-                        found_channel = channel
-                        break 
+                real_price = max(prices)
                 
-                if not found_channel: found_channel = "플랫폼원본"
-
-                if room_name not in collected_rooms_channels:
-                    collected_rooms_channels[room_name] = []
-                
-                if found_channel not in collected_rooms_channels[room_name]:
-                    # 4. [수정] 포인트 금액 방지 및 진짜 가격 추출 로직
-                    prices = []
-                    for p in parts:
-                        if "원" in p:
-                            num = re.sub(r'[^0-9]', '', p)
-                            if num:
-                                prices.append(int(num))
-                    
-                    if not prices: continue
-                    
-                    # 지배인님, 여기서 포인트(작은 숫자)는 버리고 
-                    # 한 상자 안에서 가장 큰 금액(실제 객실가)만 가져옵니다.
-                    real_price = max(prices)
-                    
-                    # 10만 원 이상일 때만 진짜 가격으로 인정 (포인트/적립금 완벽 차단)
-                    if real_price > 100000:
-                        rows.append([now, hotel_name, room_name, found_channel, real_price, target_date])
-                        collected_rooms_channels[room_name].append(found_channel)
-                        print(f"    🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
+                if real_price > 100000:
+                    rows.append([now, hotel_name, room_name, found_channel, real_price, target_date])
+                    collected_rooms_channels[room_name].append(found_channel)
+                    print(f"    🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
         
         return rows
     except Exception as e:
@@ -261,6 +243,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
