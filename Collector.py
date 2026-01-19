@@ -86,13 +86,19 @@ def get_dynamic_target_dates():
 
 # 3. 개별 호텔 데이터 수집 함수 (엠버 10종 타입 무삭제 반영)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
+    # [추가] 지금 무슨 날짜 하는지 바로 로그 찍기
+    print(f"   📅 {target_date} 조회 시도 중...", flush=True) 
+    
     try:
         date_obj = datetime.strptime(target_date, "%Y-%m-%d")
         checkout_date = (date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        time.sleep(15) # 넉넉하게 15초 대기
+        time.sleep(15) 
+        
+        # [추가] 페이지가 로딩됐는지 확인용 로그
+        print(f"      🔎 페이지 로드 완료, 데이터 탐색 시작...", flush=True)
         
         # 🚀 [수정 부위: 여기서부터 복사해서 붙여넣으세요]
         time.sleep(15) # 페이지 로딩을 위해 15초 대기
@@ -258,4 +264,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
