@@ -134,24 +134,26 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if "원" not in text or "\n" not in text: continue
             
             html_content = item.get_attribute('innerHTML').lower()
-            exclude_keywords = ["조식", "패키지", "package", "포함", "연박", "long", "stay", "라운지", "특전", "무료증정", "wine", "와인"]
-            
-            if any(kw in text.lower() for kw in exclude_keywords): continue
-
             parts = text.split("\n")
-            room_name = parts[0].strip()
+            room_name = parts[0].strip() # 로봇이 인식한 방 이름
 
-            # 🏨 엠버 10종 필터 (무삭제 + 포함 확인 방식으로 보강)
+            # 🚀 [범인 검거용 로그] 로봇이 뭐라고 읽고 있는지 출력합니다.
+            # 이 로그를 보고 지배인님의 amber_types와 비교해 보세요.
+            print(f"      ❓ 발견된 객실: {room_name}", flush=True)
+
+            if any(kw in text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
+
+            # 쾌속 모드 및 엠버 10종 필터
+            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
+                break
+            
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
-                    
-            # [수정] 공백을 없애고 '포함'되어 있는지 검사 (가장 확실함)
-            clean_room_name = room_name.replace(" ", "")
-            match_found = False
-            for target in amber_types:
-                if target.replace(" ", "") in clean_room_name:
-                    match_found = True
-                    break
+                
+                # 공백 제거 후 포함 여부로 더 느슨하게 검사
+                clean_rn = room_name.replace(" ", "")
+                if not any(target.replace(" ", "") in clean_rn for target in amber_types):
+                    continue
                     
             if not match_found:
                 # 지배인님, 필터에 안 걸려서 버려지는 방이 뭔지 로그로 찍어볼게요.
@@ -256,6 +258,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
