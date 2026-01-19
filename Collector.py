@@ -135,10 +135,14 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         collected_rooms_channels = {} 
 
         for item in items:
-            # 텍스트 강제 추출 (JS)
-            raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
+            try:
+                # [수정] Stale 에러 방지를 위한 안전장치 추가
+                # 화면이 갱신되어 요소가 사라졌으면 그냥 무시하고 넘어감
+                raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
+            except Exception:
+                continue
             
-            # 주소/전화번호 재확인 사살
+            # 주소/전화번호 재확인
             if "원" not in raw_text: continue
             
             parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
@@ -146,18 +150,13 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             
             room_name = parts[0]
             
-            # 조식/패키지 등 제외 키워드
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
 
-            # [엠버 필터링] 공백 무시하고 키워드 포함 여부만 체크 (Partial Match)
+            # [엠버 필터링]
             if hotel_name == "엠버퓨어힐":
-                # 지배인님 10종 리스트의 핵심 키워드
                 amber_keywords = ["그린밸리", "포레스트", "힐파인", "힐엠버", "힐루나", "풀빌라", "힐 파인", "힐 엠버", "힐 루나"]
                 clean_rn = room_name.replace(" ", "")
-                
-                # 방 이름에 핵심 키워드가 하나라도 들어있는지 확인
                 if not any(kw.replace(" ", "") in clean_rn for kw in amber_keywords):
-                    # print(f"      [필터제외] {room_name}") # 필요시 주석 해제
                     continue
 
             # 쾌속 모드 시 중복 방지
@@ -165,8 +164,12 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 break
             
             found_channel = "플랫폼원본"
-            html_content = item.get_attribute('innerHTML').lower()
-            
+            html_content = ""
+            try:
+                html_content = item.get_attribute('innerHTML').lower()
+            except:
+                pass # HTML 읽다가 에러나면 그냥 원본으로 둠
+                
             priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
             for channel in priority_order:
                 keywords = target_map.get(channel, [])
@@ -177,7 +180,6 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 collected_rooms_channels[room_name] = []
             
             if found_channel not in collected_rooms_channels[room_name]:
-                # 가격 숫자만 추출
                 prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
                 if not prices: continue
                 real_price = max(prices)
@@ -245,3 +247,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
