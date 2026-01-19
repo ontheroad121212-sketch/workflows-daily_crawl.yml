@@ -94,20 +94,22 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         driver.get(url)
         time.sleep(15) # 넉넉하게 15초 대기
         
-        # [수정] 페이지 스크롤 로직 강화 (네이버 데이터 로딩 트리거)
-        driver.execute_script("window.scrollTo(0, 800);")
-        time.sleep(2)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        # 🚀 [수정 부위: 여기서부터 복사해서 붙여넣으세요]
+        time.sleep(15) # 페이지 로딩을 위해 15초 대기
+        driver.execute_script("window.scrollTo(0, 1000);") # 로봇이 아닌 척 스크롤 내리기
         time.sleep(3)
         
-        # 실제 객실 리스트(li)가 있는지 확인
-        items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item']")
-        if not items:
-            items = driver.find_elements(By.TAG_NAME, "li") # 백업용 탐색
-
-        if not items:
-            print(f"      ⚠️ {target_date}: 조회된 객실 리스트가 없습니다. (네트워크 지연 또는 만실)", flush=True)
+        # '원'이 포함된 요소가 있는지 먼저 검사 (있어야 데이터가 뜬 것임)
+        price_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '원')]")
+        
+        if not price_elements:
+            print(f"      ⚠️ {target_date}: 가격 정보를 찾을 수 없습니다. (네이버 차단 혹은 로딩 실패)", flush=True)
             return []
+
+        # 기존의 단순 li 탐색 대신, div 아이템까지 샅샅이 뒤집니다
+        items = driver.find_elements(By.CSS_SELECTOR, "div[class*='item'], li[class*='item'], li")
+        # 🚀 [수정 끝: 이 아래부터는 기존 room_name 추출 로직 그대로 두시면 됩니다]
+
         rows = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         
@@ -214,18 +216,23 @@ def main():
     
     test_dates = get_dynamic_target_dates()
     
-    # [엔진 설정] 네이버 차단 회피용 정밀 세팅 (무삭제)
+    # [엔진 설정] 네이버 차단 회피용 정밀 세팅
     options = Options()
     options.add_argument("--headless=new") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    # 언어 설정을 한국어로 고정해서 의심을 피합니다
+    options.add_argument("--lang=ko_KR")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
+    # 자동화 제어 신호를 아예 삭제합니다
     options.add_argument("--disable-blink-features=AutomationControlled") 
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    
+    # [핵심] 지배인님, 이 줄이 꼭 있어야 합니다! (로봇 아니라고 거짓말하는 코드)
     driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     
     try:
@@ -251,3 +258,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
