@@ -19,7 +19,16 @@ def save_to_google_sheet(all_data):
     if not all_data: return
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_name('key.json', scope)
+        
+        # 깃허브 Secrets에 등록한 키를 안전하게 가져옵니다.
+        key_json = os.environ.get("GCP_SERVICE_ACCOUNT_KEY")
+        
+        if not key_json:
+            print("🚨 에러: 깃허브 Secrets에 GCP_SA_KEY가 설정되지 않았습니다.", flush=True)
+            return
+
+        key_dict = json.loads(key_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
         client = gspread.authorize(creds)
         sheet = client.open("Amber_Price_DB").sheet1 
         sheet.append_rows(all_data)
@@ -207,6 +216,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
