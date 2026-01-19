@@ -16,18 +16,18 @@ import os
 import json
 
 # [시스템 로그]
-print("🚀 [시스템] 엠버 AI 지배인 풀버전 수집 엔진 가동 (무삭제판)", flush=True)
+print("🚀 [시스템] 엠버 & 경쟁사 통합 모니터링 엔진 가동 (FINAL VER)", flush=True)
 
-# 1. 구글 시트 저장 함수 (깃허브 Secrets 연동)
+# 1. 구글 시트 저장 함수
 def save_to_google_sheet(all_data):
     if not all_data: return
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # 깃허브 Secrets 환경변수에서 키 로드
+        # 깃허브 Secrets에서 키 가져오기
         key_json = os.environ.get("GCP_SA_KEY")
         if not key_json:
-            print("🚨 [저장실패] 깃허브 Secrets에 'GCP_SA_KEY'가 없습니다. 설정을 확인하세요.", flush=True)
+            print("🚨 [저장실패] 깃허브 Secrets에 'GCP_SA_KEY'가 없습니다.", flush=True)
             return
 
         key_dict = json.loads(key_json)
@@ -39,7 +39,7 @@ def save_to_google_sheet(all_data):
     except Exception as e:
         print(f"🚨 [저장에러] {e}", flush=True)
 
-# 2. 날짜 계산 함수 (지배인님 원본 로직 100% 유지)
+# 2. 날짜 계산 함수 (지배인님 원본 로직)
 def get_dynamic_target_dates():
     today = datetime.now()
     target_dates = set()
@@ -85,7 +85,7 @@ def get_dynamic_target_dates():
     print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
     return final_list
 
-# 3. 데이터 수집 함수 (여기가 핵심 수정됨)
+# 3. 데이터 수집 함수 (Stale 에러 방지 + 엠버 전용 필터 + 경쟁사 전체수집)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 조회 시도 중...", flush=True) 
     try:
@@ -94,7 +94,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         
         driver.get(url)
         
-        # [1] 로딩 대기: 주소/전화번호가 아니라 '원' 가격표가 뜰 때까지 기다림 (최대 20초)
+        # [1] 로딩 대기: '원' 가격표가 뜰 때까지 최대 20초 대기
         try:
             WebDriverWait(driver, 20).until(
                 EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]"))
@@ -103,46 +103,44 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             print(f"      ⚠️ {target_date}: 가격 정보가 로딩되지 않음 (만실/차단)", flush=True)
             return []
 
-        # [2] 스크롤: 확실하게 내림
-        driver.execute_script("window.scrollTo(0, 800);")
-        time.sleep(1)
-        driver.execute_script("window.scrollTo(0, 1600);")
+        # [2] 스크롤: 확실하게 내려서 하단 로딩 유도
+        driver.execute_script("window.scrollTo(0, 1000);")
         time.sleep(1)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
 
-        # [3] 요소 찾기: 아무 li나 잡지 않고, 내부에 '원' 글자가 있는 놈만 잡음 (주소/전화번호 자동 필터링)
+        # [3] 요소 찾기: '원' 글자가 포함된 li 또는 div만 수집 (주소/전화번호 자동 제외)
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
 
         if not items:
             print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다.", flush=True)
             return []
         
-        print(f"      🔎 진짜 객실(가격포함) {len(items)}개 발견! 분석 시작...", flush=True)
-
         rows = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         
         target_map = {
             "아고다": ["agoda", "아고다"], "트립닷컴": ["trip.com", "트립닷컴", "tripcom"],
             "트립비토즈": ["tripbtoz", "트립비토즈"], "부킹닷컴": ["booking.com", "부킹닷컴"],
-            "야놀자": ["NOL", "놀" "야놀자"], "여기어때": ["goodchoice", "여기어때"],
+            "야놀자": ["yanolja", "nol", "놀", "야놀자"], "여기어때": ["goodchoice", "여기어때"],
             "익스피디아": ["expedia", "익스피디아"], "호텔스닷컴": ["hotels.com", "호텔스닷컴"],
             "시크릿몰": ["secretmall", "시크릿몰"], "호텔패스": ["hotelpass", "호텔패스"],
             "네이버": ["naver", "네이버", "npay"]
         }
         
         collected_rooms_channels = {} 
+        
+        # 엠버퓨어힐 전용 필터 키워드 ('누에베' 차단용)
+        amber_must_have = ["그린", "포레스트", "힐 파인", "힐 엠버", "힐 루나", "풀빌라", "힐파인", "힐엠버", "힐루나"]
 
         for item in items:
             try:
-                # [수정] Stale 에러 방지를 위한 안전장치 추가
-                # 화면이 갱신되어 요소가 사라졌으면 그냥 무시하고 넘어감
+                # [Stale 에러 방지] 요소가 살아있는지 확인하며 텍스트 추출
                 raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
-            except Exception:
+            except:
                 continue
             
-            # 주소/전화번호 재확인
+            # 가격 정보 없으면 패스
             if "원" not in raw_text: continue
             
             parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
@@ -150,25 +148,33 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             
             room_name = parts[0]
             
+            # 조식/패키지 등 제외 키워드
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
 
-            # [엠버 필터링]
+            # [핵심 로직] 호텔별 다르게 처리
             if hotel_name == "엠버퓨어힐":
-                amber_keywords = ["그린밸리", "포레스트", "힐파인", "힐엠버", "힐루나", "풀빌라", "힐 파인", "힐 엠버", "힐 루나"]
-                clean_rn = room_name.replace(" ", "")
-                if not any(kw.replace(" ", "") in clean_rn for kw in amber_keywords):
-                    continue
+                # 엠버는 '누에베' 같은 추천 호텔이 섞이면 안 되므로 키워드 검사 필수
+                is_amber_room = False
+                for kw in amber_must_have:
+                    if kw in room_name or kw.replace(" ", "") in room_name.replace(" ", ""):
+                        is_amber_room = True
+                        break
+                if not is_amber_room:
+                    continue # 엠버인데 키워드 없으면(남의 호텔이면) 버림
+            
+            # 경쟁사(신라, 롯데 등)는 방 이름을 우리가 모르므로 필터 없이 다 수집
+            # (주소/전화번호는 위에서 '원' 체크로 이미 걸러짐)
 
-            # 쾌속 모드 시 중복 방지
+            # 쾌속 모드 시 중복 방지 (같은 방 이름은 하나만)
             if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
                 break
             
-            found_channel = "플랫폼원본"
+            found_channel = "네이버" # 기본값
             html_content = ""
             try:
                 html_content = item.get_attribute('innerHTML').lower()
             except:
-                pass # HTML 읽다가 에러나면 그냥 원본으로 둠
+                pass
                 
             priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
             for channel in priority_order:
@@ -179,28 +185,45 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if room_name not in collected_rooms_channels:
                 collected_rooms_channels[room_name] = []
             
-            if found_channel not in collected_rooms_channels[room_name]:
-                prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
-                if not prices: continue
-                real_price = max(prices)
-                
-                if real_price > 100000:
-                    rows.append([now, hotel_name, room_name, found_channel, real_price, target_date])
-                    collected_rooms_channels[room_name].append(found_channel)
-                    print(f"    🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
+            # 이미 수집한 방+채널 조합이면 건너뜀
+            if found_channel in collected_rooms_channels[room_name]:
+                continue
+
+            # 가격 숫자만 추출
+            prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
+            if not prices: continue
+            real_price = max(prices)
+            
+            # 10만원 이상만 수집 (터무니없는 싼 가격 제외)
+            if real_price > 100000:
+                rows.append([now, hotel_name, room_name, found_channel, real_price, target_date])
+                collected_rooms_channels[room_name].append(found_channel)
+                print(f"    🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
         
         return rows
     except Exception as e:
         print(f"❌ {hotel_name} 수집 오류: {e}", flush=True); return []
 
-# 4. 메인 실행 함수 (지배인님 설정 그대로)
+# 4. 메인 실행 함수
 def main():
+    # VIP: 매일 정밀하게 봐야 할 호텔
     vip_hotels = ["엠버퓨어힐", "파르나스", "그랜드조선제주", "그랜드하얏트", "신라호텔", "롯데호텔"]
+    
+    # 전체 수집 대상 호텔 리스트 (13개)
     hotels = {
-        "엠버퓨어힐": "N5302461", "그랜드하얏트": "N5281539", "파르나스": "N5287649",
-        "신라호텔": "N1496601", "롯데호텔": "N1053569", "그랜드조선제주": "N5279751",
-        "신라스테이": "N5305249", "해비치": "N1053576", "신화메리어트": "N3610024", 
-        "히든클리프": "N2982178", "더시에나": "N2662081", "조선힐스위트": "KYK10391783", "메종글래드": "N1053566"
+        "엠버퓨어힐": "N5302461", 
+        "그랜드하얏트": "N5281539", 
+        "파르나스": "N5287649",
+        "신라호텔": "N1496601", 
+        "롯데호텔": "N1053569", 
+        "그랜드조선제주": "N5279751",
+        "신라스테이": "N5305249", 
+        "해비치": "N1053576", 
+        "신화메리어트": "N3610024", 
+        "히든클리프": "N2982178", 
+        "더시에나": "N2662081", 
+        "조선힐스위트": "KYK10391783", 
+        "메종글래드": "N1053566"
     }
 
     today = datetime.now()
@@ -209,7 +232,7 @@ def main():
     is_full_scan_day = is_monday and is_even_week
 
     print("\n" + "="*50, flush=True)
-    print(f"🏨 엠버 AI 지배인 엔진 v3.5 (정밀대상: {len(vip_hotels)}개)", flush=True)
+    print(f"🏨 엠버 & 경쟁사 통합 모니터링 엔진 vFINAL (총 {len(hotels)}개 호텔)", flush=True)
     if is_full_scan_day:
         print("📢 오늘은 [격주 정기 점검일]입니다. 모든 호텔을 정밀 스캔합니다!", flush=True)
     
@@ -234,6 +257,7 @@ def main():
             is_precision = (hotel_name in vip_hotels) or is_full_scan_day
             mode_tag = "💎 [정밀]" if is_precision else "⚡ [쾌속]"
             print(f"\n{mode_tag} {hotel_name} 분석 시작...", flush=True)
+            
             for date in test_dates:
                 data = collect_hotel_data(driver, hotel_name, hotel_id, date, is_precision)
                 if data:
@@ -247,4 +271,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
