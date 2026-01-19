@@ -193,7 +193,6 @@ def main():
     # 2주에 한 번(짝수 주) 월요일 판별
     today = datetime.now()
     is_monday = today.weekday() == 0
-    # isocalendar()[1]은 현재가 몇 주차인지 알려줍니다.
     is_even_week = (today.isocalendar()[1]) % 2 == 0
     is_full_scan_day = is_monday and is_even_week
 
@@ -216,14 +215,13 @@ def main():
             mode_tag = "💎 [정밀]" if is_precision else "⚡ [쾌속]"
             
             print(f"\n{mode_tag} {hotel_name} 분석 시작...", flush=True)
-            hotel_total_data = []
+            
+            # [최적화] 호텔 단위가 아니라 날짜 단위로 실시간 저장하도록 루프 수정
             for date in test_dates:
                 data = collect_hotel_data(driver, hotel_name, hotel_id, date, is_precision)
-                hotel_total_data.extend(data)
-            
-            if hotel_total_data:
-                save_to_google_sheet(hotel_total_data)
-                print(f"✨ {hotel_name} 전송 완료!", flush=True)
+                if data:
+                    save_to_google_sheet(data)
+                    print(f"📍 {date} 데이터 실시간 시트 전송 완료", flush=True)
 
     except Exception as e:
         print(f"🚨 메인 루프 실행 에러: {e}", flush=True)
