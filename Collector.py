@@ -94,8 +94,8 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         driver.get(url)
         time.sleep(15) # 넉넉하게 15초 대기
         
-        # 페이지 스크롤 (데이터 로딩 유도)
-        driver.execute_script("window.scrollTo(0, 500);")
+        # [수정] 페이지 스크롤 로직 강화 (네이버 데이터 로딩 트리거)
+        driver.execute_script("window.scrollTo(0, 800);")
         time.sleep(2)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
@@ -214,17 +214,19 @@ def main():
     
     test_dates = get_dynamic_target_dates()
     
+    # [엔진 설정] 네이버 차단 회피용 정밀 세팅 (무삭제)
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument("--headless=new") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080") # 화면 크기 고정
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36") # 최신 버전으로 갱신
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     options.add_experimental_option('useAutomationExtension', False)
-    options.add_argument("--disable-blink-features=AutomationControlled") # 자동화 감지 회피 핵심
+    options.add_argument("--disable-blink-features=AutomationControlled") 
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
     
     try:
         for hotel_name, hotel_id in hotels.items():
@@ -249,5 +251,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
