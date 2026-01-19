@@ -137,34 +137,43 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         
         collected_rooms_channels = {} 
 
+        print(f"      🔎 페이지 로드 확인 (객실 수: {len(items)}개), 분석 시작...", flush=True)
+
         for item in items:
             # [수정] 텍스트 추출 방식 강화 (일반 text가 안되면 innerText로 강제 추출)
             raw_text = item.text.strip()
             if not raw_text:
                 raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
             
-            if "원" not in raw_text or "\n" not in raw_text:
+            # '원'이 없으면 객실 정보가 아니라고 판단하고 패스
+            if "원" not in raw_text:
                 continue
             
+            # 줄바꿈이 없으면 데이터 구조가 깨진 것이므로 정리
             parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
             if not parts: continue
             
             room_name = parts[0] # 첫 번째 줄을 방 이름으로 인식
 
-            # 🚀 [긴급 로그] 로봇이 실제로 뭐라고 읽었는지 무조건 찍습니다.
+            # 🚀 [범인 검거용 로그] 로봇이 실제로 뭐라고 읽었는지 로그에 무조건 찍습니다.
             print(f"      ❓ [확인] 로봇이 읽은 이름: {room_name}", flush=True)
 
             html_content = item.get_attribute('innerHTML').lower()
+            
+            # 조식/패키지 제외 로직 (원본 유지)
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]):
                 continue
 
-            # 🏨 엠버 10종 필터 (매칭 여부 확인 로그 추가)
+            # 🏨 엠버 10종 필터 (포함 여부로 더 느슨하게 검사)
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
                 
                 clean_rn = room_name.replace(" ", "")
-                # 포함 여부로 더 느슨하게 검사
+                # [개선] '똑같아야 함' -> '포함만 되어도 됨'으로 변경
                 match_found = any(target.replace(" ", "") in clean_rn for target in amber_types)
+                
+                if not match_found:
+                    continue
                     
             if not match_found:
                 # 지배인님, 필터에 안 걸려서 버려지는 방이 뭔지 로그로 찍어볼게요.
@@ -269,6 +278,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
