@@ -4,6 +4,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
 import re
@@ -82,7 +84,7 @@ def get_dynamic_target_dates():
     print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
     return final_list
 
-# 3. 개별 호텔 데이터 수집 함수 (강력 추출 기능 이식)
+# 3. 개별 호텔 데이터 수집 함수 (강제 대기 및 강력 추출 기능 이식)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 조회 시도 중...", flush=True) 
     try:
@@ -91,19 +93,23 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         
         driver.get(url)
         
-        wait = 0
-        while wait < 30:
-            items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item'], div[class*='RateItem']")
-            if len(items) > 5: break
-            time.sleep(1)
-            wait += 1
-            if wait % 5 == 0: print(f"      ⏳ 로딩 대기 중... ({wait}초)", flush=True)
+        # [핵심 수정] 빈 상자가 아니라 실제 '가격(원)'이 뜰 때까지 최대 20초 대기
+        # 이 부분이 없으면 빈 껍데기만 잡습니다.
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]"))
+            )
+        except:
+            # 타임아웃 나면 그냥 진행 (다음 로직에서 처리)
+            pass
 
+        # 스크롤링으로 데이터 활성화
         driver.execute_script("window.scrollTo(0, 500);")
         time.sleep(2)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
 
+        items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item'], div[class*='RateItem']")
         print(f"      🔎 페이지 로드 확인 (객실 수: {len(items)}개), 분석 시작...", flush=True)
 
         if not items:
@@ -128,6 +134,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             # [수정] 네이버가 숨긴 텍스트를 강제로 긁어내는 JS 명령
             raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
             
+            # '원'이 없으면 객실 정보가 아니라고 판단하고 패스
             if "원" not in raw_text: continue
             
             parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
@@ -142,7 +149,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
                 
-                # 🚀 핵심 수정: 공백을 없애고 '포함'되어 있는지 검사 (가장 확실함)
+                # 공백 제거 후 포함 여부 확인 (Partial Match)
                 clean_rn = room_name.replace(" ", "")
                 match_found = False
                 for target in amber_types:
@@ -151,9 +158,11 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                         break
                 
                 if not match_found:
-                    # 지배인님, 범인을 잡기 위해 필터에 걸려 버려지는 이름들을 로그에 찍어봅니다.
-                    print(f"      ❌ 필터 제외됨: {room_name}", flush=True) 
                     continue
+
+            # 쾌속 모드 시 중복 제거 로직
+            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
+                break
             
             found_channel = "플랫폼원본"
             priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
@@ -230,4 +239,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
