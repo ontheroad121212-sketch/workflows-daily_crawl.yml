@@ -141,9 +141,22 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             parts = text.split("\n")
             room_name = parts[0].strip()
 
-            # 쾌속 모드 및 엠버 10종 필터 (지배인님 로직 무삭제)
-            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
-                break
+            # 🏨 엠버 10종 필터 (무삭제 + 포함 확인 방식으로 보강)
+                if hotel_name == "엠버퓨어힐":
+                    amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
+                    
+                    # [수정] 공백을 없애고 '포함'되어 있는지 검사 (가장 확실함)
+                    clean_room_name = room_name.replace(" ", "")
+                    match_found = False
+                    for target in amber_types:
+                        if target.replace(" ", "") in clean_room_name:
+                            match_found = True
+                            break
+                    
+                    if not match_found:
+                        # 지배인님, 필터에 안 걸려서 버려지는 방이 뭔지 로그로 찍어볼게요.
+                        # print(f"      (필터제외): {room_name}") 
+                        continue
 
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
@@ -243,6 +256,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
