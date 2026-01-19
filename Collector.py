@@ -86,28 +86,34 @@ def get_dynamic_target_dates():
     return final_list
 
 # 3. 데이터 수집 함수 (Stale 에러 방지 + 엠버 전용 필터 + 경쟁사 전체수집)
+
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 조회 시도 중...", flush=True) 
     try:
+        # [수정] 페이지 로딩 타임아웃 설정 (30초 지나면 강제 새로고침)
+        driver.set_page_load_timeout(30)
+        
         checkout_date = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        
-        # [1] 로딩 대기: '원' 가격표가 뜰 때까지 최대 20초 대기
+        print(f"      ⏳ 접속 성공! 가격표 찾는 중...", flush=True) # 멈췄는지 확인용 로그
+
         try:
-            WebDriverWait(driver, 20).until(
-                EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]"))
-            )
+            # [수정] 10초만 기다리고 안 나오면 바로 포기 (무한대기 방지)
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
         except:
-            print(f"      ⚠️ {target_date}: 가격 정보가 로딩되지 않음 (만실/차단)", flush=True)
+            print(f"      ⚠️ {target_date}: 로딩 실패 (빈 화면이거나 차단됨)", flush=True)
             return []
 
-        # [2] 스크롤: 확실하게 내려서 하단 로딩 유도
-        driver.execute_script("window.scrollTo(0, 1000);")
-        time.sleep(1)
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(2)
+        # 스크롤
+        driver.execute_script("window.scrollTo(0, 1000);"); time.sleep(1)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);"); time.sleep(1)
+
+        items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
+        
+        rows = []
+        now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
         # [3] 요소 찾기: '원' 글자가 포함된 li 또는 div만 수집 (주소/전화번호 자동 제외)
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
@@ -283,4 +289,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
