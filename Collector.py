@@ -112,9 +112,16 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             print(f"      ⚠️ {target_date}: 가격 정보를 찾을 수 없습니다. (네이버 차단 혹은 로딩 실패)", flush=True)
             return []
 
-        # 기존의 단순 li 탐색 대신, div 아이템까지 샅샅이 뒤집니다
-        items = driver.find_elements(By.CSS_SELECTOR, "div[class*='item'], li[class*='item'], li")
-        # 🚀 [수정 끝: 이 아래부터는 기존 room_name 추출 로직 그대로 두시면 됩니다]
+        # 기존의 items = ... 부분을 지우고 이 아래로 교체하세요
+        items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item'], div[class*='item'], li[class*='Rate']")
+        
+        # 만약 그래도 못 찾으면 더 넓은 범위로 탐색
+        if not items:
+            items = driver.find_elements(By.XPATH, "//li[descendant::span[contains(text(), '원')]]")
+
+        if not items:
+            print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다. (구조 변경 의심)", flush=True)
+            return []
 
         rows = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -264,5 +271,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
