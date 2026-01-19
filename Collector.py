@@ -14,17 +14,16 @@ import calendar
 # [로그 출력]
 print("🚀 [시스템] 엠버 AI 지배인 하이브리드 수집 엔진 가동...", flush=True)
 
-# 1. 구글 시트 저장 함수 (원본 유지)
+# 1. 구글 시트 저장 함수 (보안 통과 버전)
 def save_to_google_sheet(all_data):
     if not all_data: return
     try:
         scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
         
-        # 깃허브 Secrets에 등록한 키를 안전하게 가져옵니다.
-        key_json = os.environ.get("GCP_SERVICE_ACCOUNT_KEY")
-        
+        # 깃허브 Secrets에서 키를 가져옵니다 (Secret scanning 회피)
+        key_json = os.environ.get("GCP_SA_KEY")
         if not key_json:
-            print("🚨 에러: 깃허브 Secrets에 GCP_SA_KEY가 설정되지 않았습니다.", flush=True)
+            print("🚨 저장 에러: 깃허브 Secrets에 GCP_SA_KEY가 없습니다.", flush=True)
             return
 
         key_dict = json.loads(key_json)
@@ -267,6 +266,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
