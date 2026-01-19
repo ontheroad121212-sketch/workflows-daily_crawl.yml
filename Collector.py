@@ -92,11 +92,22 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        time.sleep(12) 
+        time.sleep(15) # 넉넉하게 15초 대기
+        
+        # 페이지 스크롤 (데이터 로딩 유도)
+        driver.execute_script("window.scrollTo(0, 500);")
+        time.sleep(2)
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
         
-        items = driver.find_elements(By.TAG_NAME, "li")
+        # 실제 객실 리스트(li)가 있는지 확인
+        items = driver.find_elements(By.CSS_SELECTOR, "li[class*='item']")
+        if not items:
+            items = driver.find_elements(By.TAG_NAME, "li") # 백업용 탐색
+
+        if not items:
+            print(f"      ⚠️ {target_date}: 조회된 객실 리스트가 없습니다. (네트워크 지연 또는 만실)", flush=True)
+            return []
         rows = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         
@@ -232,3 +243,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
