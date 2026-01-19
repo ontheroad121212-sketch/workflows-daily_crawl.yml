@@ -138,30 +138,33 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         collected_rooms_channels = {} 
 
         for item in items:
-            text = item.text.strip()
-            if "원" not in text or "\n" not in text: continue
+            # [수정] 텍스트 추출 방식 강화 (일반 text가 안되면 innerText로 강제 추출)
+            raw_text = item.text.strip()
+            if not raw_text:
+                raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
             
+            if "원" not in raw_text or "\n" not in raw_text:
+                continue
+            
+            parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
+            if not parts: continue
+            
+            room_name = parts[0] # 첫 번째 줄을 방 이름으로 인식
+
+            # 🚀 [긴급 로그] 로봇이 실제로 뭐라고 읽었는지 무조건 찍습니다.
+            print(f"      ❓ [확인] 로봇이 읽은 이름: {room_name}", flush=True)
+
             html_content = item.get_attribute('innerHTML').lower()
-            parts = text.split("\n")
-            room_name = parts[0].strip() # 로봇이 인식한 방 이름
+            if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]):
+                continue
 
-            # 🚀 [범인 검거용 로그] 로봇이 뭐라고 읽고 있는지 출력합니다.
-            # 이 로그를 보고 지배인님의 amber_types와 비교해 보세요.
-            print(f"      ❓ 발견된 객실: {room_name}", flush=True)
-
-            if any(kw in text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
-
-            # 쾌속 모드 및 엠버 10종 필터
-            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
-                break
-            
+            # 🏨 엠버 10종 필터 (매칭 여부 확인 로그 추가)
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
                 
-                # 공백 제거 후 포함 여부로 더 느슨하게 검사
                 clean_rn = room_name.replace(" ", "")
-                if not any(target.replace(" ", "") in clean_rn for target in amber_types):
-                    continue
+                # 포함 여부로 더 느슨하게 검사
+                match_found = any(target.replace(" ", "") in clean_rn for target in amber_types)
                     
             if not match_found:
                 # 지배인님, 필터에 안 걸려서 버려지는 방이 뭔지 로그로 찍어볼게요.
@@ -266,6 +269,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
