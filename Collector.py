@@ -141,12 +141,19 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             # [무삭제] 지배인님의 엠버 10종 필터 로직 원형 보존
             if hotel_name == "엠버퓨어힐":
                 amber_types = ["그린밸리 디럭스 더블", "그린밸리 디럭스 패밀리", "포레스트 가든 더블", "포레스트 가든 더블 eb", "포레스트 플로라 더블", "포레스트 펫 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라"]
+                
+                # 🚀 핵심 수정: 공백을 없애고 '포함'되어 있는지 검사 (가장 확실함)
                 clean_rn = room_name.replace(" ", "")
-                match_found = any(target.replace(" ", "") in clean_rn for target in amber_types)
-                if not match_found: continue
-
-            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
-                break
+                match_found = False
+                for target in amber_types:
+                    if target.replace(" ", "") in clean_rn:
+                        match_found = True
+                        break
+                
+                if not match_found:
+                    # 지배인님, 범인을 잡기 위해 필터에 걸려 버려지는 이름들을 로그에 찍어봅니다.
+                    print(f"      ❌ 필터 제외됨: {room_name}", flush=True) 
+                    continue
             
             found_channel = "플랫폼원본"
             priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
@@ -223,3 +230,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
