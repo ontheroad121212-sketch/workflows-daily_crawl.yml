@@ -27,42 +27,62 @@ def save_to_google_sheet(all_data):
     except Exception as e:
         print(f"🚨 저장 에러: {e}", flush=True)
 
-# 2. 스마트 날짜 계산 함수 (지배인님 요청 로직 반영)
+# 2. 스마트 날짜 계산 함수 (지배인님 요청 로직 정밀 반영)
 def get_dynamic_target_dates():
     today = datetime.now()
     target_dates = set()
     
     # [당월] 차주 및 차차주 수, 토
-    for i in range(7, 21):
+    # 오늘 기준으로 다음주(7일 뒤)부터 다다음주(21일 뒤)까지의 모든 수요일(2), 토요일(5) 추출
+    for i in range(7, 22):
         future_date = today + timedelta(days=i)
         if future_date.weekday() in [2, 5]: 
             target_dates.add(future_date.strftime("%Y-%m-%d"))
             
-    # [익월~+3개월] 2주 수, 3주 토
+    # [익월~+3개월] 매월 2주 수, 3주 토
     current_month, current_year = today.month, today.year
     for i in range(1, 4):
         month = (current_month + i - 1) % 12 + 1
         year = current_year + (current_month + i - 1) // 12
         cal = calendar.monthcalendar(year, month)
+        
+        # 2주차 수요일 계산
         weds = [w[calendar.WEDNESDAY] for w in cal if w[calendar.WEDNESDAY] != 0]
         if len(weds) >= 2: target_dates.add(f"{year}-{month:02d}-{weds[1]:02d}")
+        
+        # 3주차 토요일 계산
         sats = [s[calendar.SATURDAY] for s in cal if s[calendar.SATURDAY] != 0]
         if len(sats) >= 3: target_dates.add(f"{year}-{month:02d}-{sats[2]:02d}")
         
-    # [공휴일] 앞뒤 전수 조사
-    holidays = ["2026-02-14", "2026-02-16", "2026-02-20", "2026-03-01", "2026-05-05", "2026-05-24", "2026-06-06", "2026-08-15", "2026-09-24", "2026-09-25", "2026-09-26", "2026-10-03", "2026-10-09", "2026-12-25"]
-    for h in holidays:
+    # [공휴일] 2026년 주요 연휴 앞뒤 전수 조사 (날짜 정밀 보강)
+    holidays_2026 = [
+        "2026-02-13", "2026-02-16", "2026-02-21", # 설날 연휴
+        "2026-03-01", # 삼일절
+        "2026-05-05", # 어린이날
+        "2026-05-24", # 부처님오신날
+        "2026-06-06", # 현충일
+        "2026-08-15", # 광복절
+        "2026-09-24", "2026-09-25", "2026-09-26", # 추석 연휴
+        "2026-10-03", "2026-10-09", # 개천절, 한글날
+        "2026-12-25"  # 크리스마스
+    ]
+    
+    for h in holidays_2026:
         h_date = datetime.strptime(h, "%Y-%m-%d")
         if h_date >= today:
-            target_dates.add((h_date - timedelta(days=1)).strftime("%Y-%m-%d"))
-            target_dates.add(h)
-            target_dates.add((h_date + timedelta(days=1)).strftime("%Y-%m-%d"))
+            # 지배인님 요청: 무조건 앞뒤로 다 조사
+            target_dates.add((h_date - timedelta(days=1)).strftime("%Y-%m-%d")) # 전날
+            target_dates.add(h) # 당일
+            target_dates.add((h_date + timedelta(days=1)).strftime("%Y-%m-%d")) # 다음날
             
-    # [여름성수기]
+    # [여름성수기] 7월말 주중1, 8월초 주말1 고정 타겟
     target_dates.add("2026-07-29")
     target_dates.add("2026-08-01")
     
-    return sorted([d for d in target_dates if d >= today.strftime("%Y-%m-%d")])
+    # 중복 제거 및 정렬 후 오늘 이후 날짜만 반환
+    final_list = sorted([d for d in target_dates if d >= today.strftime("%Y-%m-%d")])
+    print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
+    return final_list
 
 # 3. 개별 호텔 데이터 수집 함수 (엠버 10종 타입 무삭제 반영)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
@@ -109,7 +129,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
                     break
 
-                # 🏨 [중요] 엠버퓨어힐 전용 10개 타입 필터 (토씨 하나 안 틀리고 그대로 넣었습니다)
+                # 🏨 [중요] 엠버퓨어힐 전용 10개 타입 필터 (무삭제)
                 if hotel_name == "엠버퓨어힐":
                     amber_types = [
                         "그린밸리 디럭스 더블", 
@@ -123,11 +143,9 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                         "힐 루나 패밀리", 
                         "프라이빗 풀빌라"
                     ]
-                    # 위 10개 이름 중 하나라도 포함되어야 수집함
                     if not any(kw in room_name for kw in amber_types):
                         continue
                 
-                # 채널 판별 로직
                 found_channel = None
                 priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
                 for channel in priority_order:
@@ -141,7 +159,6 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if room_name not in collected_rooms_channels:
                     collected_rooms_channels[room_name] = []
                 
-                # 중복 채널 제외하고 데이터 생성
                 if found_channel not in collected_rooms_channels[room_name]:
                     price_val = 0
                     for p in parts:
@@ -166,7 +183,6 @@ def main():
     # VIP 호텔 리스트 (매일 무조건 전수 조사)
     vip_hotels = ["엠버퓨어힐", "파르나스", "그랜드조선제주", "그랜드하얏트", "신라호텔", "롯데호텔"]
     
-    # 전체 호텔 리스트 (원본 순서 유지)
     hotels = {
         "엠버퓨어힐": "N5302461", "그랜드하얏트": "N5281539", "파르나스": "N5287649",
         "신라호텔": "N1496601", "롯데호텔": "N1053569", "그랜드조선제주": "N5279751",
@@ -177,11 +193,12 @@ def main():
     # 2주에 한 번(짝수 주) 월요일 판별
     today = datetime.now()
     is_monday = today.weekday() == 0
+    # isocalendar()[1]은 현재가 몇 주차인지 알려줍니다.
     is_even_week = (today.isocalendar()[1]) % 2 == 0
     is_full_scan_day = is_monday and is_even_week
 
     print("\n" + "="*50, flush=True)
-    print(f"🏨 엠버 AI 지배인 하이브리드 엔진 v3.0 (정밀대상: {len(vip_hotels)}개)", flush=True)
+    print(f"🏨 엠버 AI 지배인 하이브리드 엔진 v3.1 (정밀대상: {len(vip_hotels)}개)", flush=True)
     if is_full_scan_day:
         print("📢 오늘은 [격주 정기 점검일]입니다. 모든 호텔을 정밀 스캔합니다!", flush=True)
     
@@ -195,7 +212,6 @@ def main():
     
     try:
         for hotel_name, hotel_id in hotels.items():
-            # 오늘이 전수조사날이거나, VIP 호텔이면 정밀 모드 실행
             is_precision = (hotel_name in vip_hotels) or is_full_scan_day
             mode_tag = "💎 [정밀]" if is_precision else "⚡ [쾌속]"
             
