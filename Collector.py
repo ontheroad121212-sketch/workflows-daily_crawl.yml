@@ -131,7 +131,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         collected_rooms_channels = {} 
         
         # 엠버퓨어힐 전용 필터 키워드 ('누에베' 차단용)
-        amber_must_have = ["그린", "포레스트", "힐 파인", "힐 엠버", "힐 루나", "풀빌라", "힐파인", "힐엠버", "힐루나"]
+        amber_must_have = ["그린밸리 디럭스 더블", "포레스트 가든 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라", "포레스트 가든 EB", "포레스트 펫 더블", "포레스트 플로라 더블", "그린밸리 디럭스 패밀리"]
 
         for item in items:
             try:
@@ -147,6 +147,18 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if not parts: continue
             
             room_name = parts[0]
+
+            # [필터링 로직]
+            if hotel_name == "엠버퓨어힐":
+                is_amber = False
+                for kw in amber_must_have:
+                    # 공백 제거 후 비교 (힐 파인 vs 힐파인 모두 잡기 위함)
+                    if kw.replace(" ", "") in room_name.replace(" ", ""):
+                        is_amber = True; break
+                
+                if not is_amber:
+                    # '누에베', '에코그린' 등은 여기서 걸러집니다.
+                    continue
             
             # 조식/패키지 등 제외 키워드
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
@@ -271,3 +283,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
