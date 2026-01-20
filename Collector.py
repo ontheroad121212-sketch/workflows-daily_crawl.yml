@@ -130,6 +130,18 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
                 room_name = parts[0]
 
+                raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
+                # [강화된 필터] 텍스트 전체에서 타 호텔명이 감지되면 즉시 제외
+                if any(trash in raw_text for trash in garbage_keywords):
+                    continue 
+
+                parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
+                room_name = parts[0]
+
+                # [추가 보안] 경쟁사 수집 시에도 '추천', '비슷한' 문구가 보이면 차단
+                if hotel_name != "엠버퓨어힐":
+                    if any(bad in raw_text for bad in ["추천", "비슷한", "주변", "다른 호텔"]):
+
                 # 잡초 제거 (원본 보존)
                 if any(trash in room_name for trash in garbage_keywords): continue
 
@@ -219,3 +231,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
