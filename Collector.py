@@ -108,7 +108,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         time.sleep(random.uniform(6.0, 9.0)) # 사람이 눈으로 훑는 시간만큼 대기
 
         try:
-            WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
+            WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
         except:
             print(f"      ⚠️ 데이터 로딩 지연 (건너뜜)", flush=True)
             return []
@@ -134,9 +134,9 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         # 플랫폼 맵핑 (원본 유지)
         target_map = {"아고다": ["agoda", "아고다"], "트립닷컴": ["trip.com", "트립닷컴"], "트립비토즈": ["tripbtoz"], "부킹닷컴": ["booking.com"], "야놀자": ["yanolja", "놀"], "여기어때": ["goodchoice"], "익스피디아": ["expedia"], "호텔스닷컴": ["hotels.com"], "시크릿몰": ["secretmall"], "호텔패스": ["hotelpass"], "네이버": ["naver", "npay", "호텔에서 결제"]}
         
-        # [무삭제] 엠버 필수 키워드 및 잡초 리스트
+        # [무삭제] 엠버 필수 키워드 및 잡초 리스트 (메종글래드, 신라스테이 등 경쟁사 추가)
         amber_must_have = ["그린밸리", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
-        garbage_keywords = ["아이미", "노블레스", "오션스위츠", "모텔", "게스트하우스", "비치", "관광호텔", "리조트텔", "메종글래드", "신라스테이", "에코랜드", "씨티호텔", "제주아이미"]
+        garbage_keywords = ["아이미", "노블레스", "오션스위츠", "모텔", "게스트하우스", "비치", "관광호텔", "리조트텔", "메종글래드", "신라스테이", "에코랜드", "씨티호텔", "제주아이미", "펄호텔", "에어시티", "화이트하우스", "베스트웨스턴"]
 
         per_room_channels = {}
         for item in items:
@@ -144,8 +144,16 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
                 if "원" not in raw_text: continue
                 
-                # 🚨 [잡초 제거] 텍스트 전체에서 타 호텔명 감지 시 차단
+                # 🚨 [1차 보안: 블랙리스트] 텍스트 전체에서 잡초 호텔명 감지 시 차단
                 if any(trash in raw_text for trash in garbage_keywords):
+                    continue
+
+                # 🚨 [2차 보안: 광고차단] 경쟁사 수집 시 '추천', '비슷한' 문구가 보이면 차단
+                if any(bad in raw_text for bad in ["추천", "비슷한", "주변", "다른 호텔", "연관 광고"]):
+                    continue
+
+                # 🚨 [3차 보안: 하얏트 전용] 하얏트 수집 중인데 '하얏트' 글자가 없으면 100% 광고임
+                if hotel_name == "그랜드하얏트" and "하얏트" not in raw_text:
                     continue
 
                 parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
@@ -155,12 +163,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if hotel_name == "엠버퓨어힐":
                     clean_name = room_name.replace(" ", "")
                     if not any(kw in clean_name for kw in amber_must_have):
-                        continue # 타 호텔 추천 차단
-
-                # 🚨 [경쟁사 추천 광고 차단]
-                if hotel_name != "엠버퓨어힐":
-                    if any(bad in raw_text for bad in ["추천", "비슷한", "주변", "다른 호텔"]):
-                        continue
+                        continue 
 
                 # 조식 제외 로직 유지
                 if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
@@ -247,3 +250,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
