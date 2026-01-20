@@ -1,5 +1,5 @@
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+import firebase_admin
+from firebase_admin import credentials, firestore
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
@@ -16,41 +16,53 @@ import os
 import json
 
 # [시스템 로그]
-print("🚀 [시스템] 엠버 & 경쟁사 통합 모니터링 엔진 가동 (타 호텔 차단 정밀버전)", flush=True)
+print("🚀 [시스템] 엠버 AI 지배인 엔진 v10.0 (Firebase 전용 - 무삭제판)", flush=True)
 
-# 1. 구글 시트 저장 함수 (지배인님 원본 유지)
-def save_to_google_sheet(all_data):
-    if not all_data: return
+# 1. 파이어베이스 초기화 함수 (GitHub Secrets 대응)
+def init_firebase():
     try:
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+        fb_key_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
+        if not fb_key_json:
+            print("🚨 [에러] FIREBASE_SERVICE_ACCOUNT 설정이 없습니다.", flush=True)
+            return None
         
-        # 깃허브 Secrets에서 키 가져오기
-        key_json = os.environ.get("GCP_SA_KEY")
-        if not key_json:
-            print("🚨 [저장실패] 깃허브 Secrets에 'GCP_SA_KEY'가 없습니다.", flush=True)
-            return
-
-        key_dict = json.loads(key_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
-        client = gspread.authorize(creds)
-        sheet = client.open("Amber_Price_DB").sheet1 
-        sheet.append_rows(all_data)
-        print(f"✅ 구글 시트 데이터 저장 완료! ({len(all_data)}행)", flush=True)
+        fb_key_dict = json.loads(fb_key_json)
+        cred = credentials.Certificate(fb_key_dict)
+        
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+        
+        return firestore.client()
     except Exception as e:
-        print(f"🚨 [저장에러] {e}", flush=True)
+        print(f"🚨 [DB 연결 실패] {e}", flush=True)
+        return None
 
-# 2. 날짜 계산 함수 (지배인님 원본 로직 100% 보존)
+# 2. 파이어베이스 저장 함수 (중복 방지 ID 생성 포함)
+def save_to_firebase(db, all_data):
+    if not db or not all_data: return
+    try:
+        batch = db.batch()
+        for data in all_data:
+            # 날짜_호텔_방이름_채널 조합으로 고유 ID 생성 (데이터 꼬임 방지)
+            doc_id = f"{data['target_date']}_{data['hotel_name']}_{data['room_name']}_{data['channel']}".replace(" ", "").replace("/", "_")
+            doc_ref = db.collection("Hotel_Prices").document(doc_id)
+            batch.set(doc_ref, data)
+        
+        batch.commit()
+        print(f"✅ Firebase DB 저장 완료! ({len(all_data)}행)", flush=True)
+    except Exception as e:
+        print(f"🚨 [DB 저장 에러] {e}", flush=True)
+
+# 3. 날짜 계산 함수 (지배인님 원본 로직 100% 동일)
 def get_dynamic_target_dates():
     today = datetime.now()
     target_dates = set()
     
-    # [당월] 차주 및 차차주 수, 토
     for i in range(7, 22):
         future_date = today + timedelta(days=i)
         if future_date.weekday() in [2, 5]: 
             target_dates.add(future_date.strftime("%Y-%m-%d"))
             
-    # [익월~+3개월] 매월 2주 수, 3주 토
     current_month, current_year = today.month, today.year
     for i in range(1, 4):
         month = (current_month + i - 1) % 12 + 1
@@ -63,7 +75,6 @@ def get_dynamic_target_dates():
         sats = [s[calendar.SATURDAY] for s in cal if s[calendar.SATURDAY] != 0]
         if len(sats) >= 3: target_dates.add(f"{year}-{month:02d}-{sats[2]:02d}")
         
-    # [공휴일] 2026년 주요 연휴 앞뒤 전수 조사
     holidays_2026 = [
         "2026-02-13", "2026-02-16", "2026-02-21", "2026-03-01", "2026-05-05", 
         "2026-05-24", "2026-06-06", "2026-08-15", "2026-09-24", "2026-09-25", 
@@ -77,7 +88,6 @@ def get_dynamic_target_dates():
             target_dates.add(h)
             target_dates.add((h_date + timedelta(days=1)).strftime("%Y-%m-%d"))
             
-    # [여름성수기]
     target_dates.add("2026-07-29")
     target_dates.add("2026-08-01")
     
@@ -85,7 +95,7 @@ def get_dynamic_target_dates():
     print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
     return final_list
 
-# 3. 데이터 수집 함수 (타 호텔 차단 로직 + 더보기 클릭 + 정밀 필터링)
+# 4. 데이터 수집 함수 (네이버 돌파용 더보기 클릭 & 정밀 필터 로직 무삭제)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 조회 시도 중...", flush=True) 
     try:
@@ -99,7 +109,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         try:
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
         except:
-            print(f"      ⚠️ {target_date}: 가격 정보 로딩 실패 (빈 화면 또는 차단)", flush=True)
+            print(f"      ⚠️ {target_date}: 가격 정보 로딩 실패", flush=True)
             return []
 
         # [단계별 스크롤]
@@ -118,14 +128,13 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 except: continue
         except: pass
 
-        # 요소 추출
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
 
         if not items:
             print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다.", flush=True)
             return []
         
-        rows = []
+        collected_data = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         
         target_map = {
@@ -137,10 +146,9 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             "네이버": ["naver", "네이버", "npay", "호텔에서 결제"]
         }
         
-        collected_rooms_channels = {} 
-        
-        # 엠버 전용 고유 필터
         amber_must_have = ["그린밸리 디럭스 더블", "포레스트 가든 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라", "포레스트 가든 EB", "포레스트 펫 더블", "포레스트 플로라 더블", "그린밸리 디럭스 패밀리"]
+        
+        per_room_channels = {}
 
         for item in items:
             try:
@@ -150,11 +158,9 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if "원" not in raw_text: continue
             parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
             if not parts: continue
-            
             room_name = parts[0]
 
-            # 🚨 [중요: 타 호텔 차단 로직] 
-            # 엠버퓨어힐인 경우 '아이미 제주', '오션스위츠' 등을 걸러냄
+            # 🚨 [엠버 전용 필터]
             if hotel_name == "엠버퓨어힐":
                 is_amber = False
                 for kw in amber_must_have:
@@ -163,50 +169,54 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if not is_amber: continue 
 
             # 🚨 [경쟁사 타 호텔 차단]
-            # 경쟁사(하얏트 등) 수집 시에도 '추천 호텔'이 섞이지 않도록 최소한의 검증
-            # 추천 호텔 상자는 보통 호텔 이름이 따로 적혀있음
             if hotel_name != "엠버퓨어힐":
-                # 방 이름에 '제주'나 '호텔'만 덜렁 있고 가격이 너무 싸면 의심
                 if any(bad in room_name for bad in ["추천", "비슷한", "주변"]): continue
 
-            # 조식/패키지 제외
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
 
-            if not is_precision_mode and len(collected_rooms_channels) >= 1 and room_name not in collected_rooms_channels:
+            # 쾌속 모드 중복 방지
+            if not is_precision_mode and len(per_room_channels) >= 1 and room_name not in per_room_channels:
                 break
             
-            found_channel = "네이버"
+            # 채널 찾기
             html_content = ""
-            try:
-                html_content = item.get_attribute('innerHTML').lower()
+            try: html_content = item.get_attribute('innerHTML').lower()
             except: pass
-                
-            priority_order = ["아고다", "트립닷컴", "트립비토즈", "부킹닷컴", "야놀자", "여기어때", "익스피디아", "호텔스닷컴", "시크릿몰", "호텔패스", "네이버"]
-            for channel in priority_order:
-                keywords = target_map.get(channel, [])
+            
+            found_channel = "네이버"
+            for channel, keywords in target_map.items():
                 if any(key in html_content for key in keywords):
                     found_channel = channel; break 
 
-            if room_name not in collected_rooms_channels:
-                collected_rooms_channels[room_name] = []
-            
-            if found_channel in collected_rooms_channels[room_name]: continue
+            # 중복 체크 (방이름 + 채널 조합)
+            if room_name not in per_room_channels: per_room_channels[room_name] = []
+            if found_channel in per_room_channels[room_name]: continue
 
             prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
             if not prices: continue
             real_price = max(prices)
             
             if real_price > 100000:
-                rows.append([now, hotel_name, room_name, found_channel, real_price, target_date])
-                collected_rooms_channels[room_name].append(found_channel)
+                collected_data.append({
+                    "collected_at": now,
+                    "hotel_name": hotel_name,
+                    "room_name": room_name,
+                    "channel": found_channel,
+                    "price": real_price,
+                    "target_date": target_date
+                })
+                per_room_channels[room_name].append(found_channel)
                 print(f"    🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
         
-        return rows
+        return collected_data
     except Exception as e:
         print(f"❌ {hotel_name} 수집 오류: {e}", flush=True); return []
 
-# 4. 메인 실행 함수
+# 5. 메인 실행 함수
 def main():
+    db = init_firebase()
+    if not db: return
+
     vip_hotels = ["엠버퓨어힐", "파르나스", "그랜드조선제주", "그랜드하얏트", "신라호텔", "롯데호텔"]
     hotels = {
         "엠버퓨어힐": "N5302461", "그랜드하얏트": "N5281539", "파르나스": "N5287649",
@@ -215,13 +225,12 @@ def main():
         "히든클리프": "N2982178", "더시에나": "N2662081", "조선힐스위트": "KYK10391783", "메종글래드": "N1053566"
     }
 
-    today = datetime.now()
-    is_monday = today.weekday() == 0
-    is_even_week = (today.isocalendar()[1]) % 2 == 0
+    is_monday = datetime.now().weekday() == 0
+    is_even_week = (datetime.now().isocalendar()[1]) % 2 == 0
     is_full_scan_day = is_monday and is_even_week
 
     print("\n" + "="*50, flush=True)
-    print(f"🏨 엠버 & 경쟁사 통합 모니터링 엔진 vFINAL (총 {len(hotels)}개 호텔)", flush=True)
+    print(f"🏨 엠버 & 경쟁사 통합 엔진 v10.0 (DB: Firebase)", flush=True)
     
     test_dates = get_dynamic_target_dates()
     
@@ -248,8 +257,8 @@ def main():
             for date in test_dates:
                 data = collect_hotel_data(driver, hotel_name, hotel_id, date, is_precision)
                 if data:
-                    save_to_google_sheet(data)
-                    print(f"📍 {date} 데이터 실시간 시트 전송 완료", flush=True)
+                    save_to_firebase(db, data)
+                    print(f"📍 {date} 데이터 DB 전송 완료", flush=True)
     except Exception as e:
         print(f"🚨 메인 루프 실행 에러: {e}", flush=True)
     finally:
