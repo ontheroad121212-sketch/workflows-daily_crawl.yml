@@ -16,9 +16,9 @@ import os
 import json
 
 # [시스템 로그]
-print("🚀 [시스템] 엠버 AI 지배인 엔진 v10.0 (Firebase 전용 - 무삭제판)", flush=True)
+print("🚀 [시스템] 엠버 AI 지배인 엔진 v11.0 (잡초 제거 강화판)", flush=True)
 
-# 1. 파이어베이스 초기화 함수 (GitHub Secrets 대응)
+# 1. 파이어베이스 초기화 (GitHub Secrets 사용)
 def init_firebase():
     try:
         fb_key_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
@@ -37,13 +37,13 @@ def init_firebase():
         print(f"🚨 [DB 연결 실패] {e}", flush=True)
         return None
 
-# 2. 파이어베이스 저장 함수 (중복 방지 ID 생성 포함)
+# 2. 파이어베이스 저장 함수
 def save_to_firebase(db, all_data):
     if not db or not all_data: return
     try:
         batch = db.batch()
         for data in all_data:
-            # 날짜_호텔_방이름_채널 조합으로 고유 ID 생성 (데이터 꼬임 방지)
+            # 중복 방지 ID (날짜_호텔_방_채널)
             doc_id = f"{data['target_date']}_{data['hotel_name']}_{data['room_name']}_{data['channel']}".replace(" ", "").replace("/", "_")
             doc_ref = db.collection("Hotel_Prices").document(doc_id)
             batch.set(doc_ref, data)
@@ -53,7 +53,7 @@ def save_to_firebase(db, all_data):
     except Exception as e:
         print(f"🚨 [DB 저장 에러] {e}", flush=True)
 
-# 3. 날짜 계산 함수 (지배인님 원본 로직 100% 동일)
+# 3. 날짜 계산 함수 (지배인님 원본 유지)
 def get_dynamic_target_dates():
     today = datetime.now()
     target_dates = set()
@@ -95,7 +95,7 @@ def get_dynamic_target_dates():
     print(f"📅 [지능형타겟팅] 분석 대상 날짜 (총 {len(final_list)}일): {final_list}", flush=True)
     return final_list
 
-# 4. 데이터 수집 함수 (네이버 돌파용 더보기 클릭 & 정밀 필터 로직 무삭제)
+# 4. 데이터 수집 함수 (잡초 제거 로직 추가됨)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 조회 시도 중...", flush=True) 
     try:
@@ -104,21 +104,19 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        print(f"      ⏳ 접속 성공! 가격표 로딩 대기...", flush=True)
-
+        
         try:
             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
         except:
             print(f"      ⚠️ {target_date}: 가격 정보 로딩 실패", flush=True)
             return []
 
-        # [단계별 스크롤]
+        # 스크롤
         for s in range(3):
             driver.execute_script(f"window.scrollTo(0, {(s+1)*1200});")
             time.sleep(1)
 
-        # 🚀 [전수 수집] 모든 '판매처 더보기' 버튼 클릭
-        print(f"      🔘 숨겨진 모든 판매처 채널 확장 중...", flush=True)
+        # 더보기 버튼 클릭
         try:
             more_buttons = driver.find_elements(By.XPATH, "//*[contains(text(), '판매처') and contains(text(), '더보기')]")
             for btn in more_buttons:
@@ -129,10 +127,6 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         except: pass
 
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
-
-        if not items:
-            print(f"      ⚠️ {target_date}: 객실 상자를 찾지 못했습니다.", flush=True)
-            return []
         
         collected_data = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -146,8 +140,12 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             "네이버": ["naver", "네이버", "npay", "호텔에서 결제"]
         }
         
-        amber_must_have = ["그린밸리 디럭스 더블", "포레스트 가든 더블", "힐 파인 더블", "힐 엠버 트윈", "힐 루나 패밀리", "프라이빗 풀빌라", "포레스트 가든 EB", "포레스트 펫 더블", "포레스트 플로라 더블", "그린밸리 디럭스 패밀리"]
+        # [필터 1] 엠버 전용 필수 포함 키워드
+        amber_must_have = ["그린밸리", "포레스트", "힐파인", "힐엠버", "힐루나", "힐 파인", "힐 엠버", "힐 루나", "프라이빗"]
         
+        # [필터 2] 🔥 잡초 제거 리스트 (이 단어가 보이면 무조건 버림)
+        garbage_keywords = ["아이미", "노블레스", "오션스위츠", "모텔", "게스트하우스", "통나무", "비치", "관광호텔", "리조트텔"]
+
         per_room_channels = {}
 
         for item in items:
@@ -160,7 +158,11 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             if not parts: continue
             room_name = parts[0]
 
-            # 🚨 [엠버 전용 필터]
+            # 🚨 [잡초 제거 로직] 이름에 이상한 호텔명이 섞여있으면 즉시 폐기
+            if any(trash in room_name for trash in garbage_keywords):
+                continue
+
+            # 🚨 [엠버 전용 필터] 엠버인데 엠버 방 이름이 없으면 폐기 (타 호텔 추천 방지)
             if hotel_name == "엠버퓨어힐":
                 is_amber = False
                 for kw in amber_must_have:
@@ -168,17 +170,18 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                         is_amber = True; break
                 if not is_amber: continue 
 
-            # 🚨 [경쟁사 타 호텔 차단]
+            # [경쟁사 타 호텔 방지] 
             if hotel_name != "엠버퓨어힐":
-                if any(bad in room_name for bad in ["추천", "비슷한", "주변"]): continue
+                if any(bad in room_name for bad in ["추천", "비슷한", "주변", "거리"]): continue
 
+            # 조식/패키지 제외
             if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
 
             # 쾌속 모드 중복 방지
             if not is_precision_mode and len(per_room_channels) >= 1 and room_name not in per_room_channels:
                 break
             
-            # 채널 찾기
+            # 채널 매핑
             html_content = ""
             try: html_content = item.get_attribute('innerHTML').lower()
             except: pass
@@ -188,7 +191,6 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if any(key in html_content for key in keywords):
                     found_channel = channel; break 
 
-            # 중복 체크 (방이름 + 채널 조합)
             if room_name not in per_room_channels: per_room_channels[room_name] = []
             if found_channel in per_room_channels[room_name]: continue
 
@@ -230,7 +232,7 @@ def main():
     is_full_scan_day = is_monday and is_even_week
 
     print("\n" + "="*50, flush=True)
-    print(f"🏨 엠버 & 경쟁사 통합 엔진 v10.0 (DB: Firebase)", flush=True)
+    print(f"🏨 엠버 & 경쟁사 통합 엔진 v11.0 (잡초 제거 가동)", flush=True)
     
     test_dates = get_dynamic_target_dates()
     
