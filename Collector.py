@@ -95,111 +95,83 @@ def get_dynamic_target_dates():
     print(f"📅 [분석대상] 총 {len(final_list)}일 타겟팅 가동", flush=True)
     return final_list
 
-# 4. 데이터 수집 함수 (잡초 제거 + 정밀 추출 + 차단 회피)
+# 4. 데이터 수집 함수 (채널별 최저가 정예 수집 모드)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 분석 시도...", flush=True) 
     try:
         driver.delete_all_cookies()
-        driver.set_page_load_timeout(60)
         checkout_date = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        time.sleep(random.uniform(6.0, 9.0)) # 사람이 눈으로 훑는 시간만큼 대기
+        # 로딩 대기 시간은 충분히 (데이터 실종 방지)
+        time.sleep(random.uniform(7.0, 10.0))
 
-        try:
-            WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
-        except:
-            print(f"      ⚠️ 데이터 로딩 지연 (건너뜜)", flush=True)
-            return []
-
-        # 단계별 스크롤 및 판매처 더보기 (원본 로직 보존)
-        driver.execute_script("window.scrollTo(0, 1500);")
-        time.sleep(1.5)
+        # 요금 리스트 상자들만 찾기
+        items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]]")
         
-        try:
-            more_btns = driver.find_elements(By.XPATH, "//*[contains(text(), '판매처') and contains(text(), '더보기')]")
-            for btn in more_btns[:8]:
-                try:
-                    driver.execute_script("arguments[0].click();", btn)
-                    time.sleep(0.3)
-                except: continue
-        except: pass
-
-        items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item')][descendant::*[contains(text(), '원')]]")
+        # [핵심] 채널별 최저가 하나만 담기 위한 임시 저장소
+        # 예: {'아고다': {'price': 250000, 'room': '그린밸리'}, ...}
+        best_prices_per_channel = {}
         
-        collected_data = []
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
-        
-        # 플랫폼 맵핑 (원본 유지)
         target_map = {"아고다": ["agoda", "아고다"], "트립닷컴": ["trip.com", "트립닷컴"], "트립비토즈": ["tripbtoz"], "부킹닷컴": ["booking.com"], "야놀자": ["yanolja", "놀"], "여기어때": ["goodchoice"], "익스피디아": ["expedia"], "호텔스닷컴": ["hotels.com"], "시크릿몰": ["secretmall"], "호텔패스": ["hotelpass"], "네이버": ["naver", "npay", "호텔에서 결제"]}
-        
-        # [무삭제] 엠버 필수 키워드 및 잡초 리스트 (메종글래드, 신라스테이 등 경쟁사 추가)
-        amber_must_have = ["그린밸리", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
-        garbage_keywords = ["아이미", "노블레스", "오션스위츠", "모텔", "게스트하우스", "비치", "관광호텔", "리조트텔", "메종글래드", "신라스테이", "에코랜드", "씨티호텔", "제주아이미", "펄호텔", "에어시티", "화이트하우스", "베스트웨스턴"]
 
-        per_room_channels = {}
+        # 호텔 이름 확인용 키워드 (하얏트 수집 중이면 '하얏트'가 있어야 함)
+        check_kw = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").strip()
+        if hotel_name == "엠버퓨어힐": check_kw = "엠버"
+
         for item in items:
             try:
-                raw_text = driver.execute_script("return arguments[0].innerText;", item).strip()
+                raw_text = item.text.strip()
                 if "원" not in raw_text: continue
                 
-                # 🚨 [1차 보안: 블랙리스트] 텍스트 전체에서 잡초 호텔명 감지 시 차단
-                if any(trash in raw_text for trash in garbage_keywords):
-                    continue
-
-                # 🚨 [2차 보안: 광고차단] 경쟁사 수집 시 '추천', '비슷한' 문구가 보이면 차단
-                if any(bad in raw_text for bad in ["추천", "비슷한", "주변", "다른 호텔", "연관 광고"]):
-                    continue
-
-                # 🚨 [3차 보안: 하얏트 전용] 하얏트 수집 중인데 '하얏트' 글자가 없으면 100% 광고임
-                if hotel_name == "그랜드하얏트" and "하얏트" not in raw_text:
-                    continue
+                # 🚨 [보안 1] 현재 호텔 이름이 텍스트에 없으면 광고이므로 즉시 버림
+                if check_kw not in raw_text.replace(" ", ""): continue
+                
+                # 🚨 [보안 2] 추천/연관 문구 있으면 버림
+                if any(bad in raw_text for bad in ["추천", "비슷한", "다른 호텔", "연관"]): continue
 
                 parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
                 room_name = parts[0]
-
-                # 🚨 [엠버 정밀 필터]
-                if hotel_name == "엠버퓨어힐":
-                    clean_name = room_name.replace(" ", "")
-                    if not any(kw in clean_name for kw in amber_must_have):
-                        continue 
-
-                # 조식 제외 로직 유지
-                if any(kw in raw_text.lower() for kw in ["조식", "패키지", "라운지", "와인"]): continue
-
-                # 쾌속 모드 중복 방지
-                if not is_precision_mode and len(per_room_channels) >= 1 and room_name not in per_room_channels:
-                    break
                 
-                # 채널 찾기
-                html_content = item.get_attribute('innerHTML').lower()
-                found_channel = "네이버"
-                for ch, kws in target_map.items():
-                    if any(kw in html_content for kw in kws):
-                        found_channel = ch; break
-
-                # 중복 체크
-                if room_name not in per_room_channels: per_room_channels[room_name] = []
-                if found_channel in per_room_channels[room_name]: continue
+                # 엠버는 지정된 객실만 (지배인님 원본 유지)
+                if hotel_name == "엠버퓨어힐":
+                    amber_rooms = ["그린", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
+                    if not any(kw in room_name for kw in amber_rooms): continue
 
                 # 가격 추출
                 prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
                 if not prices: continue
-                real_price = max(prices)
-                
-                if real_price > 100000:
-                    collected_data.append({
-                        "collected_at": now, "hotel_name": hotel_name, "room_name": room_name,
-                        "channel": found_channel, "price": real_price, "target_date": target_date
-                    })
-                    per_room_channels[room_name].append(found_channel)
-                    print(f"      🔎 [{found_channel}] {room_name}: {real_price:,}원", flush=True)
-            except: continue
-        return collected_data
-    except Exception as e:
-        print(f"❌ {hotel_name} 에러: {e}", flush=True); return []
+                current_price = max(prices)
 
+                # 채널 찾기
+                found_channel = "네이버"
+                html_content = item.get_attribute('innerHTML').lower()
+                for ch, kws in target_map.items():
+                    if any(kw in html_content for kw in kws):
+                        found_channel = ch; break
+
+                # [정예 수집 로직] 해당 채널의 가격이 비어있거나, 더 싼 가격이 나오면 교체
+                if found_channel not in best_prices_per_channel or current_price < best_prices_per_channel[found_channel]['price']:
+                    best_prices_per_channel[found_channel] = {
+                        "collected_at": now,
+                        "hotel_name": hotel_name,
+                        "room_name": room_name,
+                        "channel": found_channel,
+                        "price": current_price,
+                        "target_date": target_date
+                    }
+            except: continue
+
+        # 결과물만 리스트로 변환해서 반환
+        final_data = list(best_prices_per_channel.values())
+        for d in final_data:
+            print(f"      🎯 [{d['channel']}] 최저가 포착: {d['room_name']} ({d['price']:,}원)", flush=True)
+            
+        return final_data
+    except Exception as e:
+        return []
 # 5. 메인 실행 (13개 호텔 전수 복구)
 def main():
     db = init_firebase()
@@ -250,4 +222,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
