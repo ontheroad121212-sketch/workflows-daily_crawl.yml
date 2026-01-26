@@ -77,30 +77,41 @@ def get_dynamic_target_dates():
     print(f"📅 [분석대상] 총 {len(final_list)}일 타겟팅 가동", flush=True)
     return final_list
 
-# 4. 데이터 수집 함수 (지배인님 로직 보강판)
+# 4. 데이터 수집 함수 (v14.0 최종 로딩 보장판)
 def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_mode):
     print(f"    📅 {target_date} 분석 시도...", flush=True) 
     try:
         driver.delete_all_cookies()
+        # [수정] 네이버 탐지 회피를 위한 사람 같은 대기
+        time.sleep(random.uniform(2.0, 4.0))
+        
         checkout_date = (datetime.strptime(target_date, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
         
-        # [패치] 가격표 리스트가 뜰 때까지 정밀 대기 (최대 25초)
+        # [핵심 처방] 요금표가 담긴 상위 컨테이너가 나타날 때까지 정밀 대기
         try:
-            WebDriverWait(driver, 25).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='PriceList_list']"))
+            # PriceList라는 단어가 들어간 모든 요소를 타겟팅
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.XPATH, "//*[contains(@class, 'PriceList')] | //*[contains(text(), '원')]"))
             )
         except:
-            print(f"      ⚠️ 요금표 로딩 실패", flush=True)
-            return []
+            # 만약 실패하면 스크롤을 한 번 더 튕겨서 로딩 유도
+            driver.execute_script("window.scrollTo(0, 500);")
+            time.sleep(3)
+            try:
+                WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
+            except:
+                print(f"      ⚠️ 요금표 로딩 실패", flush=True)
+                return []
 
-        # [패치] 하단 추천 광고 로딩 방지를 위해 절반만 스크롤
+        # 로딩 활성화를 위해 살짝 흔들어줌
         driver.execute_script("window.scrollTo(0, 800);")
         time.sleep(2)
 
-        items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]]")
+        # [수정] li 태그뿐만 아니라 div 형태의 요금 상자도 모두 수집
+        items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item') and descendant::*[contains(text(), '원')]]")
         
         temp_storage = {} 
         logo_map = {
@@ -109,7 +120,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             "expedia": "익스피디아", "hotels.com": "호텔스닷컴", "secret_mall": "시크릿몰"
         }
 
-        # 호텔 실명제 키워드
+        # 호텔 실명제 키워드 (두 단어 조합으로 더 정교하게)
         check_kw = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").strip()[:2]
         amber_rooms = ["그린", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
 
@@ -118,9 +129,9 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 raw_text = item.text.strip()
                 if "원" not in raw_text: continue
                 
-                # 🚨 [보안] 광고 필터링
                 is_valid = False
                 if hotel_name == "엠버퓨어힐":
+                    # 엠버는 객실명만 맞으면 하단 광고 무시하고 통과
                     if any(kw in raw_text for kw in amber_rooms): is_valid = True
                 elif check_kw in raw_text:
                     is_valid = True
@@ -128,14 +139,13 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 if not is_valid: continue
                 if any(bad in raw_text for bad in ["추천", "연관", "비슷한", "다른 호텔"]): continue
 
-                # 채널명 판별 로직
+                # 채널명 판별 (HTML 소스 분석 강화)
                 found_channel = "네이버"
-                html_content = item.get_attribute('innerHTML').lower()
+                html_source = item.get_attribute('innerHTML').lower()
+                
                 for k, v in logo_map.items():
-                    if v in raw_text: found_channel = v; break
-                if found_channel == "네이버":
-                    for k, v in logo_map.items():
-                        if k in html_content: found_channel = v; break
+                    if v in raw_text or k in html_source:
+                        found_channel = v; break
 
                 parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
                 room_name = parts[0]
@@ -151,6 +161,20 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                     "channel": found_channel, "price": current_price, "target_date": target_date
                 })
             except: continue
+
+        if not temp_storage: return []
+
+        # 5개 채널 x 3개 객실 추출
+        sorted_channels = sorted(temp_storage.keys(), key=lambda x: min([d['price'] for d in temp_storage[x]]))[:5]
+        final_data = []
+        for ch in sorted_channels:
+            sorted_rooms = sorted(temp_storage[ch], key=lambda x: x['price'])[:3]
+            final_data.extend(sorted_rooms)
+            for d in sorted_rooms:
+                print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
+
+        return final_data
+    except Exception as e: return []
 
         # 🚨 [정예 선발 로직 가동]
         if not temp_storage: 
@@ -221,3 +245,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
