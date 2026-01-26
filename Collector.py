@@ -82,12 +82,23 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
         url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={checkout_date}&adultCnt=2"
         
         driver.get(url)
-        time.sleep(random.uniform(9.0, 13.0)) # 지배인님 의견 반영: 로딩 대기시간 넉넉히
+        
+        # [처방 1] 실제 가격표 리스트가 뜰 때까지 정밀 대기 (최대 20초)
+        try:
+            WebDriverWait(driver, 20).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "[class*='PriceList_list']"))
+            )
+        except:
+            print(f"      ⚠️ 요금표 로딩 실패", flush=True)
+            return []
+
+        # [처방 2] 로딩 활성화를 위한 부드러운 스크롤
+        driver.execute_script("window.scrollTo(0, 700);")
+        time.sleep(2)
 
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]]")
         
         temp_storage = {} 
-        # [보완] 로고 키워드 리스트 확장
         logo_map = {
             "agoda": "아고다", "trip.com": "트립닷컴", "tripbtoz": "트립비토즈",
             "booking": "부킹닷컴", "yanolja": "야놀자", "nol": "야놀자", "goodchoice": "여기어때",
@@ -95,27 +106,30 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
             "interpark": "인터파크", "tmon": "티몬", "wemakeprice": "위메프"
         }
 
-        check_kw = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").strip()
-        if hotel_name == "엠버퓨어힐": check_kw = "엠버"
+        # [처방 3] 실명제 키워드 유연화
+        check_kw = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").strip()[:2] # 앞 두글자만 (예: 엠버, 하얏)
+        amber_rooms = ["그린", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
 
         for item in items:
             try:
                 raw_text = item.text.strip()
                 if "원" not in raw_text: continue
                 
-                # 타 호텔 광고 차단
-                if check_kw not in raw_text.replace(" ", ""): continue
+                # 엠버퓨어힐인 경우 객실명 우선 검사로 광고 필터 우회
+                is_valid = False
+                if hotel_name == "엠버퓨어힐":
+                    if any(kw in raw_text for kw in amber_rooms): is_valid = True
+                elif check_kw in raw_text:
+                    is_valid = True
+
+                if not is_valid: continue
                 if any(bad in raw_text for bad in ["추천", "연관", "비슷한"]): continue
 
-                # 채널명 판별
+                # 채널명 판별 로직 (동일)
                 found_channel = "네이버"
                 html_content = item.get_attribute('innerHTML').lower()
-                
-                # 1. 텍스트 우선
                 for k, v in logo_map.items():
                     if v in raw_text: found_channel = v; break
-                
-                # 2. 이미지 소스 차선
                 if found_channel == "네이버":
                     for k, v in logo_map.items():
                         if k in html_content: found_channel = v; break
@@ -123,10 +137,6 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 parts = [p.strip() for p in raw_text.split("\n") if p.strip()]
                 room_name = parts[0]
                 
-                if hotel_name == "엠버퓨어힐":
-                    amber_rooms = ["그린", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
-                    if not any(kw in room_name for kw in amber_rooms): continue
-
                 prices = [int(re.sub(r'[^0-9]', '', p)) for p in parts if "원" in p and re.sub(r'[^0-9]', '', p)]
                 if not prices: continue
                 current_price = max(prices)
@@ -138,6 +148,22 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                     "channel": found_channel, "price": current_price, "target_date": target_date
                 })
             except: continue
+
+        # 상위 5개 채널 x 3개 객실 추출 (동일)
+        if not temp_storage: 
+            print(f"      ❌ 검색된 실객실 데이터 없음", flush=True)
+            return []
+
+        sorted_channels = sorted(temp_storage.keys(), key=lambda x: min([d['price'] for d in temp_storage[x]]))[:5]
+        final_data = []
+        for ch in sorted_channels:
+            sorted_rooms = sorted(temp_storage[ch], key=lambda x: x['price'])[:3]
+            final_data.extend(sorted_rooms)
+            for d in sorted_rooms:
+                print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
+
+        return final_data
+    except Exception as e: return []
 
         # 🚨 지배인님 정예 선발 로직 가동
         if not temp_storage: return []
@@ -203,3 +229,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
