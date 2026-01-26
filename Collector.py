@@ -174,32 +174,8 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
 
         return final_data
-    except Exception as e: return [][]
-
-        # 🚨 [정예 선발 로직 가동]
-        if not temp_storage: 
-            print(f"      ❌ 검색된 실객실 데이터 없음", flush=True)
-            return []
-
-        # 1. 채널별 최저가 기준 상위 5개 채널 선정
-        sorted_channels = sorted(
-            temp_storage.keys(), 
-            key=lambda x: min([d['price'] for d in temp_storage[x]])
-        )[:5]
-
-        final_data = []
-        for ch in sorted_channels:
-            # 2. 각 채널별 가격 낮은 순 상위 3개 객실 선발
-            sorted_rooms = sorted(temp_storage[ch], key=lambda x: x['price'])[:3]
-            final_data.extend(sorted_rooms)
-            for d in sorted_rooms:
-                print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
-
-        return final_data
-    except Exception as e:
-        print(f"❌ {hotel_name} 에러: {e}", flush=True)
-        return []
-
+    except Exception as e: return []
+        
 # 5. 메인 실행 (원본 유지)
 def main():
     db = init_firebase()
@@ -245,5 +221,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
