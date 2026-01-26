@@ -7,159 +7,123 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
-import time
-import re
+import time, re, json, random, os
 from datetime import datetime, timedelta
-import sys
-import calendar
-import os
-import json
-import random
 
-print("🚀 [전수 조사 모드] 엠버 AI 통합 엔진 v14.2 (13개 호텔 무삭제판)", flush=True)
+print("🏨 [v14.3] 엠버 AI 마스터 키 (로컬 가동 최적화 버전)", flush=True)
 
+# 1. 파이어베이스 초기화 (환경변수가 없으면 로컬 파일 참조하도록 보강)
 def init_firebase():
     try:
         fb_key_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT")
-        if not fb_key_json: return None
-        fb_key_dict = json.loads(fb_key_json)
-        cred = credentials.Certificate(fb_key_dict)
-        if not firebase_admin._apps: firebase_admin.initialize_app(cred)
-        return firestore.client()
-    except Exception as e: return None
-
-def save_to_firebase(db, all_data):
-    if not db or not all_data: return
-    try:
-        batch = db.batch()
-        for data in all_data:
-            doc_id = f"{data['target_date']}_{data['hotel_name']}_{data['room_name']}_{data['channel']}".replace(" ", "").replace("/", "_")
-            doc_ref = db.collection("Hotel_Prices").document(doc_id)
-            batch.set(doc_ref, data)
-        batch.commit()
-        print(f"      ✅ {len(all_data)}개 정예 데이터 저장 완료!", flush=True)
-    except Exception as e:
-        print(f"🚨 [DB 실패] {e}\n📋 데이터 백업용 출력:\n{json.dumps(all_data, ensure_ascii=False)}")
-
-def get_dynamic_target_dates():
-    today = datetime.now()
-    target_dates = set()
-    # 수동 모드: 향후 45일 이내 모든 수/토요일 + 주요 연휴
-    for i in range(1, 45):
-        future_date = today + timedelta(days=i)
-        if future_date.weekday() in [2, 5]: target_dates.add(future_date.strftime("%Y-%m-%d"))
-    
-    holidays = ["2026-02-13", "2026-02-16", "2026-05-05", "2026-05-24", "2026-10-03", "2026-10-09", "2026-12-25"]
-    for h in holidays:
-        h_date = datetime.strptime(h, "%Y-%m-%d")
-        if h_date >= today:
-            for offset in [-1, 0, 1]:
-                target_dates.add((h_date + timedelta(days=offset)).strftime("%Y-%m-%d"))
-    return sorted([d for d in target_dates if d >= today.strftime("%Y-%m-%d")])
-
-def collect_hotel_data(driver, hotel_name, hotel_id, target_date):
-    print(f"    📅 {target_date} 정밀 분석 중...", flush=True) 
-    try:
-        driver.delete_all_cookies()
-        url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={(datetime.strptime(target_date, '%Y-%m-%d')+timedelta(days=1)).strftime('%Y-%m-%d')}&adultCnt=2"
+        if fb_key_json:
+            fb_key_dict = json.loads(fb_key_json)
+            cred = credentials.Certificate(fb_key_dict)
+        else:
+            # 로컬에서 돌릴 때 key.json 파일이 있다면 사용
+            cred = credentials.Certificate("key.json") 
         
+        if not firebase_admin._apps:
+            firebase_admin.initialize_app(cred)
+        return firestore.client()
+    except Exception as e:
+        print(f"🚨 DB 연결 안 됨 (로그만 출력): {e}")
+        return None
+
+# 2. 데이터 수집 함수 (눈에 보이게 가동)
+def collect_hotel_data(driver, hotel_name, hotel_id, target_date):
+    print(f"    📅 {target_date} 분석 중...", flush=True)
+    try:
+        url = f"https://hotels.naver.com/detail/hotels/{hotel_id}/rates?checkIn={target_date}&checkOut={(datetime.strptime(target_date, '%Y-%m-%d')+timedelta(days=1)).strftime('%Y-%m-%d')}&adultCnt=2"
         driver.get(url)
         
-        # [로딩 보장] 요금표가 나타날 때까지 넉넉히 대기
-        try:
-            WebDriverWait(driver, 25).until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
-            driver.execute_script("window.scrollTo(0, 700);") # 광고 섹션 피하기 위한 중간 스크롤
-            time.sleep(random.uniform(5.0, 8.0))
-        except:
-            print(f"      ⚠️ 요금표 로딩 지연 (패스)", flush=True)
-            return []
+        # [핵심] 요금표가 뜰 때까지 실제 브라우저처럼 대기
+        wait = WebDriverWait(driver, 30)
+        wait.until(EC.presence_of_element_located((By.XPATH, "//*[contains(text(), '원')]")))
+        
+        # 로딩 유도를 위해 살짝 스크롤
+        driver.execute_script("window.scrollTo(0, 1000);")
+        time.sleep(random.uniform(3, 5))
 
         items = driver.find_elements(By.XPATH, "//li[descendant::*[contains(text(), '원')]] | //div[contains(@class, 'item') and descendant::*[contains(text(), '원')]]")
         
-        temp_storage = {} 
-        logo_map = {"agoda": "아고다", "trip.com": "트립닷컴", "tripbtoz": "트립비토즈", "booking.com": "부킹닷컴", "yanolja": "야놀자", "nol": "야놀자", "goodchoice": "여기어때", "expedia": "익스피디아", "hotels.com": "호텔스닷컴", "secret_mall": "시크릿몰", "interpark": "인터파크"}
+        temp_storage = {}
+        logo_map = {"agoda": "아고다", "trip.com": "트립닷컴", "tripbtoz": "트립비토즈", "booking": "부킹닷컴", "yanolja": "야놀자", "goodchoice": "여기어때", "expedia": "익스피디아"}
 
-        # 화이트리스트 키워드 정교화
-        core_name = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").replace("앤리조트", "").strip()[:2]
-        amber_rooms = ["그린", "포레스트", "힐파인", "힐엠버", "힐루나", "프라이빗"]
-
+        check_kw = hotel_name.replace("그랜드", "").replace("제주", "").replace("호텔", "").strip()[:2]
+        
         for item in items:
             try:
                 raw_text = item.text.strip()
-                if "원" not in raw_text: continue
-                
-                # 광고 필터
-                is_valid = False
-                if hotel_name == "엠버퓨어힐":
-                    if any(kw in raw_text for kw in amber_rooms): is_valid = True
-                elif core_name in raw_text:
-                    is_valid = True
-                
-                if not is_valid or any(bad in raw_text for bad in ["추천", "연관", "비슷한", "다른 호텔"]): continue
+                if "원" not in raw_text or check_kw not in raw_text: continue
+                if any(bad in raw_text for bad in ["추천", "연관", "비슷한"]): continue
 
-                # 채널 판별
-                html_source = item.get_attribute('innerHTML').lower()
+                # 채널명 판별 (이미지 URL 분석 강화)
+                html = item.get_attribute('innerHTML').lower()
                 found_channel = "네이버"
                 for k, v in logo_map.items():
-                    if v in raw_text or k in html_source:
+                    if k in html or v in raw_text:
                         found_channel = v; break
 
-                # 세금 포함 최종가 추출
-                price_match = re.findall(r'(\d{1,3}(?:,\d{3})+)', raw_text)
-                if not price_match: continue
-                current_price = int(price_match[-1].replace(',', '')) 
-
+                prices = [int(p.replace(',', '')) for p in re.findall(r'(\d{1,3}(?:,\d{3})+)', raw_text)]
+                if not prices: continue
+                
                 if found_channel not in temp_storage: temp_storage[found_channel] = []
                 temp_storage[found_channel].append({
                     "collected_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "hotel_name": hotel_name, "room_name": raw_text.split('\n')[0][:30],
-                    "channel": found_channel, "price": current_price, "target_date": target_date
+                    "hotel_name": hotel_name, "room_name": raw_text.split('\n')[0][:25],
+                    "channel": found_channel, "price": max(prices), "target_date": target_date
                 })
             except: continue
 
-        if not temp_storage: return []
-
-        # 상위 5개 채널 x 하위 3개 객실타입 (지배인님 정예 로직)
         final_data = []
-        sorted_channels = sorted(temp_storage.keys(), key=lambda x: min([d['price'] for d in temp_storage[x]]))[:5]
-        for ch in sorted_channels:
-            sorted_rooms = sorted(temp_storage[ch], key=lambda x: x['price'])[:3]
-            final_data.extend(sorted_rooms)
-            for d in sorted_rooms: print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
-
+        if temp_storage:
+            # 채널 5개 x 객실 3개 선발
+            for ch in sorted(temp_storage.keys(), key=lambda x: min([d['price'] for d in temp_storage[x]]))[:5]:
+                rooms = sorted(temp_storage[ch], key=lambda x: x['price'])[:3]
+                final_data.extend(rooms)
+                for r in rooms: print(f"      🎯 [{r['channel']}] {r['room_name']}: {r['price']:,}원")
         return final_data
-    except Exception as e: return []
+    except Exception as e:
+        print(f"      ⚠️ 실패: {e}")
+        return []
 
 def main():
     db = init_firebase()
-    if not db: return
-    # [무삭제] 13개 호텔 전수 조사 리스트
     hotels = {
         "엠버퓨어힐": "N5302461", "그랜드하얏트": "N5281539", "파르나스": "N5287649",
         "신라호텔": "N1496601", "롯데호텔": "N1053569", "그랜드조선제주": "N5279751",
-        "신라스테이": "N5305249", "해비치": "N1053576", "신화메리어트": "N3610024", 
-        "히든클리프": "N2982178", "더시에나": "N2662081", "조선힐스위트": "KYK10391783", "메종글래드": "N1053566"
+        "해비치": "N1053576", "신화메리어트": "N3610024", "히든클리프": "N2982178", "더시에나": "N2662081"
     }
     
-    dates = get_dynamic_target_dates()
+    # 향후 2주간의 주요 수/토요일만 타겟팅
+    dates = []
+    for i in range(1, 15):
+        d = (datetime.now() + timedelta(days=i))
+        if d.weekday() in [2, 5]: dates.append(d.strftime("%Y-%m-%d"))
+
     options = Options()
-    options.add_argument("--headless=new")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1920,1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    # 🚨 [중요] 로컬에서 돌릴 때는 Headless를 끄고 창을 보면서 돌리는 게 안전합니다.
+    # options.add_argument("--headless=new") 
+    options.add_argument("--start-maximized")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
     try:
-        for hotel_name, hotel_id in hotels.items():
-            print(f"\n🏨 {hotel_name} 전수 분석 가동", flush=True)
+        for name, hid in hotels.items():
+            print(f"\n🏨 {name} 분석 가동")
             for date in dates:
-                data = collect_hotel_data(driver, hotel_name, hotel_id, date)
-                if data: save_to_firebase(db, data)
-                time.sleep(random.uniform(5.0, 9.0)) # 차단 방지를 위한 휴식
+                data = collect_hotel_data(driver, name, hid, date)
+                if data and db: 
+                    batch = db.batch()
+                    for d in data:
+                        doc_id = f"{d['target_date']}_{d['hotel_name']}_{d['room_name']}_{d['channel']}".replace(" ","")
+                        batch.set(db.collection("Hotel_Prices").document(doc_id), d)
+                    batch.commit()
+                time.sleep(random.uniform(2, 4))
     finally:
         driver.quit()
-        print("\n🏁 전수 조사 완료", flush=True)
+        print("\n🏁 조사 완료")
 
 if __name__ == "__main__": main()
