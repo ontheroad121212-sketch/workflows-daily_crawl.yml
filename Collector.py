@@ -174,7 +174,7 @@ def collect_hotel_data(driver, hotel_name, hotel_id, target_date, is_precision_m
                 print(f"      🎯 [{d['channel']}] {d['room_name']}: {d['price']:,}원", flush=True)
 
         return final_data
-    except Exception as e: return []
+    except Exception as e: return [][]
 
         # 🚨 [정예 선발 로직 가동]
         if not temp_storage: 
@@ -245,4 +245,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
